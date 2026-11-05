@@ -218,6 +218,8 @@ function openLookEditor(name, start, onSave, onBack) {
   let cur = { ...start };
   let tab = "head";
   const draw = bump => {
+    const oldTabs = document.getElementById("lookTabs");
+    const keepScroll = oldTabs ? oldTabs.scrollLeft : null;   // نحافظ على مكان الشريط بعد إعادة الرسم
     const isHijab = CH.head[cur.head][0] === "hijab";
     const list = CH[tab];
     const isShape = SHAPE_TRAITS.includes(tab);
@@ -231,8 +233,12 @@ function openLookEditor(name, start, onSave, onBack) {
         ${lookAvatar(cur, "xxl")}
         <span class="name-tag">${esc(name)}</span>
       </div>
-      <div class="look-tabs">
-        ${LOOK_TABS.map(([t, label]) => `<button class="chip ${t === tab ? "active" : ""}" data-tab="${t}" data-quiet="1">${label}</button>`).join("")}
+      <div class="tabs-wrap">
+        <button class="tab-arrow right" id="tabsRight" data-quiet="1" aria-label="يمين"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+        <div class="look-tabs" id="lookTabs">
+          ${LOOK_TABS.map(([t, label]) => `<button class="chip ${t === tab ? "active" : ""}" data-tab="${t}" data-quiet="1">${label}</button>`).join("")}
+        </div>
+        <button class="tab-arrow left" id="tabsLeft" data-quiet="1" aria-label="يسار"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
       </div>
       <div class="card">
         ${disabled ? `<p class="hint">الشنب واللحية ما يطلعون مع الحجاب 😄</p>` : `
@@ -244,6 +250,7 @@ function openLookEditor(name, start, onSave, onBack) {
       </div>
       <button class="big ghost" id="lookRandom" data-quiet="1">🎲 شكل عشوائي</button>
       <button class="big" id="lookSave" data-quiet="1">حفظ ✔️</button>`);
+    setupTabArrows(keepScroll);
     app.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { SFX.select(); tab = b.dataset.tab; draw(false); scrollTabIntoView(); });
     app.querySelectorAll("[data-opt]").forEach(b => b.onclick = () => {
       cur[tab] = +b.dataset.opt;
@@ -254,6 +261,31 @@ function openLookEditor(name, start, onSave, onBack) {
     document.getElementById("lookSave").onclick = () => { SFX.add(); onSave(encodeLook(cur)); };
     document.getElementById("lookBack").onclick = () => { SFX.hide(); onBack(); };
   };
-  const scrollTabIntoView = () => { const a = app.querySelector(".look-tabs .active"); if (a && a.scrollIntoView) a.scrollIntoView({ block: "nearest", inline: "center" }); };
+  const scrollTabIntoView = () => { const a = app.querySelector(".look-tabs .active"); if (a && a.scrollIntoView) a.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" }); };
   draw(false);
+}
+
+// أسهم يمين ويسار لشريط التبويبات، وتخف لما توصل الطرف
+function setupTabArrows(keepScroll) {
+  const bar = document.getElementById("lookTabs");
+  const right = document.getElementById("tabsRight"), left = document.getElementById("tabsLeft");
+  if (!bar || !right || !left) return;
+  if (keepScroll != null) {
+    // نرجّع المكان فوراً بدون حركة ناعمة
+    bar.style.scrollBehavior = "auto";
+    bar.scrollLeft = keepScroll;
+    bar.style.scrollBehavior = "";
+  }
+  const update = () => {
+    const max = bar.scrollWidth - bar.clientWidth;
+    // في الصفحات العربية (RTL) البداية على اليمين، وقيمة scrollLeft تكون صفر أو سالبة حسب المتصفح
+    const fromRight = bar.scrollLeft <= 0 ? -bar.scrollLeft : max - bar.scrollLeft;
+    right.classList.toggle("off", fromRight <= 2);
+    left.classList.toggle("off", fromRight >= max - 2);
+  };
+  const step = () => Math.max(120, bar.clientWidth * 0.7);
+  right.onclick = () => { SFX.select(); bar.scrollBy({ left: step(), behavior: "smooth" }); };
+  left.onclick = () => { SFX.select(); bar.scrollBy({ left: -step(), behavior: "smooth" }); };
+  bar.addEventListener("scroll", update, { passive: true });
+  update();
 }
