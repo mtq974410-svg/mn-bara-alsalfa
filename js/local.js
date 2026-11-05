@@ -23,7 +23,7 @@ function renderSetup(spun = -1) {
   Music.setMood("calm");
   setFloaters(HOME_FLOATERS);
   const p = state.players;
-  setAvSeeds(p);
+  setAvLooks(p);
   const hasScores = p.some(x => x.score > 0);
   paint("setup", `
     <div class="topbar">
@@ -44,7 +44,7 @@ function renderSetup(spun = -1) {
             <button class="x-btn" data-del="${i}" data-quiet="1" aria-label="حذف">✕</button>
           </li>`).join("")}
       </ul>
-      ${p.length < 3 ? `<p class="hint">لازم 3 لاعبين على الأقل</p>` : p.length ? `<p class="hint">اضغط على الشخصية عشان تغيّرها 🔄</p>` : ""}
+      ${p.length < 3 ? `<p class="hint">لازم 3 لاعبين على الأقل</p>` : p.length ? `<p class="hint">اضغط على الشخصية عشان تختار شكلها ✏️</p>` : ""}
     </div>
     <div class="card">
       <div class="card-title">📂 التصنيفات <span class="badge">اختار واحد أو أكثر</span></div>
@@ -68,9 +68,11 @@ function renderSetup(spun = -1) {
   input.onkeydown = e => { if (e.key === "Enter") add(); };
   app.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { SFX.remove(); p.splice(+b.dataset.del, 1); savePlayers(); renderSetup(); });
   app.querySelectorAll("[data-av]").forEach(b => b.onclick = () => {
-    const pl = p[+b.dataset.av];
-    pl.av = ((Number(pl.av) || 0) + 1) % 10000;
-    savePlayers(); SFX.pop(); renderSetup(+b.dataset.av);
+    const i = +b.dataset.av, pl = p[i];
+    SFX.pop();
+    openLookEditor(pl.name, lookFor(pl.name),
+      look => { pl.look = look; delete pl.av; savePlayers(); renderSetup(i); },
+      () => renderSetup());
   });
   if (spun >= 0) { const b = app.querySelector(`[data-av="${spun}"]`); if (b) b.classList.add("spin-once"); }
   app.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { SFX.select(); state.cats = toggleCat(state.cats, b.dataset.cat); saveCats(state.cats); renderSetup(); });
@@ -82,7 +84,7 @@ function renderSetup(spun = -1) {
 
 /* ---------- بداية الجولة ---------- */
 function startRound() {
-  setAvSeeds(state.players);
+  setAvLooks(state.players);
   SFX.start();
   Music.setMood("calm");
   state.roundCat = pickCat(state.cats);

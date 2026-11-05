@@ -10,12 +10,12 @@ const SB_KEY = "sb_publishable_rPw-G-hp6wDLkGI-6oXB_w__M1Rfahw";
 
 const PID_KEY = "bara_pid";
 const NAME_KEY = "bara_name";
-const AV_KEY = "bara_av";
-function myAv() { const n = Number(LS.get(AV_KEY)) || 0; return n > 0 && n < 10000 ? n : 0; }
+const LOOK_KEY = "bara_look";
+function myLook() { const l = LS.get(LOOK_KEY); return decodeLook(l) ? l : ""; }
 const HOST_PREFIX = "bara_host_";
 const MAX_PLAYERS = 12;
 // رقم نسخة الغرفة: لو صاحب الغرفة واللاعب عندهم نسخ مختلفة من اللعبة نطلب منهم تحديث الصفحة
-const ROOM_VERSION = 11;
+const ROOM_VERSION = 12;
 
 const myId = LS.get(PID_KEY) || (() => {
   const id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2);
@@ -128,7 +128,7 @@ function renderNameForRoom(code) {
 function createRoom() {
   const code = String(1000 + rand(9000));
   On.isHost = true;
-  On.room = { v: ROOM_VERSION, code, hostId: myId, phase: "lobby", categories: loadCats(), players: [{ id: myId, name: myName(), score: 0, av: myAv() }], waiting: [], round: null, chat: [], seq: 1 };
+  On.room = { v: ROOM_VERSION, code, hostId: myId, phase: "lobby", categories: loadCats(), players: [{ id: myId, name: myName(), score: 0, look: myLook() }], waiting: [], round: null, chat: [], seq: 1 };
   sysChat(`${myName()} سوّى الغرفة 🎉`);
   saveHost();
   connect(code);
@@ -214,7 +214,7 @@ function sendAction(a) {
   if (On.isHost) hostHandle(payload);
   else if (On.ch) On.ch.send({ type: "broadcast", event: "action", payload });
 }
-function sendJoin() { On.lastJoinSent = Date.now(); sendAction({ type: "join", name: myName(), av: myAv() }); }
+function sendJoin() { On.lastJoinSent = Date.now(); sendAction({ type: "join", name: myName(), look: myLook() }); }
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && On.ch && !On.isHost) sendAction({ type: "hello" });
@@ -273,18 +273,17 @@ function hostHandle(a) {
   const rd = r.round;
   switch (a.type) {
     case "hello": break;
-    case "av": {
-      // اللاعب يغيّر شخصيته
+    case "look": {
+      // اللاعب اختار شكل شخصيته
       const who = p || w;
-      if (!who) return;
-      who.av = ((Number(who.av) || 0) + 1) % 10000;
+      if (!who || !decodeLook(a.look)) return;
+      who.look = a.look;
       break;
     }
     case "join": {
       if (p || w) break;
       if (r.players.length + r.waiting.length >= MAX_PLAYERS) return;
-      const av = Number(a.av) || 0;
-      const entry = { id: from, name: uniqueName(cleanText(a.name, 20) || "لاعب", r), score: 0, av: av > 0 && av < 10000 ? av : 0 };
+      const entry = { id: from, name: uniqueName(cleanText(a.name, 20) || "لاعب", r), score: 0, look: decodeLook(a.look) ? a.look : "" };
       if (r.phase === "lobby") r.players.push(entry); else r.waiting.push(entry);
       sysChat(`${entry.name} دخل الغرفة 👋`);
       break;
@@ -524,10 +523,13 @@ function nameOf(id) { return playerOf(id).name; }
 function renderOnline() {
   const r = On.room;
   if (!r) return;
+  setAvLooks(r.players.concat(r.waiting));
+  // شاشة "شخصيتك" مفتوحة: ما نرسم فوقها (بس نحدّث الدردشة)، إلا إذا بدت الجولة
+  if (On.editing) {
+    if (r.phase === "lobby") { ensureChat(); renderChat(); return; }
+    On.editing = false;
+  }
   ensureLayout();
-  setAvSeeds(r.players.concat(r.waiting));
-  const meP = r.players.concat(r.waiting).find(p => p.id === myId);
-  if (meP) LS.set(AV_KEY, String(Number(meP.av) || 0));
   renderChat();
 
   // الدردشة لها رسم منفصل، فما نعيد رسم الشاشة بسبب رسالة جديدة
@@ -646,7 +648,7 @@ function renderLobby(screen) {
           </li>`).join("")}
       </ul>
       ${r.players.length < 3 ? `<p class="hint">لازم 3 لاعبين على الأقل، ارسل الرابط للشباب 👆</p>` : ""}
-      <p class="hint">اضغط على شخصيتك عشان تغيّرها 🔄</p>
+      <p class="hint">اضغط على شخصيتك عشان تختار شكلها ✏️</p>
     </div>
     <div class="card">
       <div class="card-title">📂 التصنيف</div>
@@ -659,7 +661,16 @@ function renderLobby(screen) {
     ${leaveBtnHtml()}`);
   document.getElementById("copyBtn").onclick = () => copyText(shareLink(r.code), "تم نسخ الرابط ✅");
   const mine = screen.querySelector("[data-myav]");
-  if (mine) mine.onclick = () => { SFX.pop(); mine.classList.add("spin-once"); sendAction({ type: "av" }); };
+  if (mine) mine.onclick = () => {
+    SFX.pop();
+    On.editing = true;
+    const close = () => { On.editing = false; On.lastSig = null; app.innerHTML = ""; renderOnline(); };
+    openLookEditor(myName(), lookFor(myId), look => {
+      LS.set(LOOK_KEY, look);
+      sendAction({ type: "look", look });
+      close();
+    }, close);
+  };
   const sh = document.getElementById("shareBtn");
   if (sh) sh.onclick = () => navigator.share({ title: "مين برا السالفة؟", text: `تعال العب معنا! كود الغرفة ${r.code}`, url: shareLink(r.code) }).catch(() => {});
   if (H) {
