@@ -1,4 +1,6 @@
-/* ---------- أدوات عامة ---------- */
+/* ============================================================
+   أدوات عامة
+   ============================================================ */
 const LS = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch {} },
@@ -8,166 +10,539 @@ function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<'
 function rand(n) { return Math.floor(Math.random() * n); }
 function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = rand(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 function cleanText(s, max) { return String(s || "").replace(/\s+/g, " ").trim().slice(0, max); }
+const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const app = document.getElementById("app");
 
-// يرسم داخل عنصر، ويشغّل أنيميشن الدخول فقط لما تتغير الشاشة
+// يرسم داخل عنصر، ويشغّل أنيميشن الدخول والعدّادات فقط لما تتغير الشاشة
 function paintEl(el, key, html) {
   el.innerHTML = html;
-  if (el.dataset.key !== key) {
+  const changed = el.dataset.key !== key;
+  if (changed) {
     el.classList.remove("enter"); void el.offsetWidth; el.classList.add("enter");
     el.dataset.key = key;
     window.scrollTo(0, 0);
   }
+  animateCounts(el, changed);
 }
 function paint(key, html) { paintEl(app, key, html); }
+
+function animateCounts(root, animate) {
+  root.querySelectorAll("[data-count]").forEach(el => {
+    const to = Number(el.dataset.count) || 0;
+    if (!animate || to === 0 || reduceMotion) { el.textContent = to; return; }
+    el.textContent = 0;
+    const t0 = performance.now(), d = 900 + Math.min(600, to * 60);
+    const step = now => {
+      const k = Math.min(1, (now - t0) / d);
+      el.textContent = Math.round(to * (1 - Math.pow(1 - k, 3)));
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
 
 function shakeEl(el) { el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake"); }
 function toast(msg) {
   const t = document.createElement("div");
   t.className = "toast"; t.textContent = msg;
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 2500);
+  setTimeout(() => t.remove(), 2600);
 }
 function copyText(text, msg) {
   const fallback = () => window.prompt("انسخ:", text);
-  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => toast(msg), fallback);
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => { toast(msg); SFX.pop(); }, fallback);
   else fallback();
 }
+function vibrate(p) { try { navigator.vibrate && navigator.vibrate(p); } catch {} }
 
-/* ---------- محرك الصوت (Web Audio، بدون ملفات) ---------- */
+/* ============================================================
+   محرك الصوت: Web Audio مع ضاغط وصدى، بدون ملفات
+   ============================================================ */
 const SOUND_KEY = "bara_salfa_sound";
-const Sound = {
-  ctx: null,
-  on: LS.get(SOUND_KEY) !== "off",
-  get() {
-    if (!this.ctx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return null;
-      this.ctx = new AC();
+const MUSIC_KEY = "bara_salfa_music";
+
+const AudioEngine = {
+  ctx: null, master: null, sfxBus: null, musicBus: null, reverb: null,
+  init() {
+    if (this.ctx) { if (this.ctx.state === "suspended") this.ctx.resume(); return this.ctx; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    const c = this.ctx = new AC();
+    const comp = c.createDynamicsCompressor();
+    comp.threshold.value = -14; comp.knee.value = 20; comp.ratio.value = 4;
+    comp.attack.value = 0.003; comp.release.value = 0.25;
+    this.master = c.createGain(); this.master.gain.value = 0.9;
+    this.master.connect(comp); comp.connect(c.destination);
+    this.sfxBus = c.createGain(); this.sfxBus.connect(this.master);
+    this.musicBus = c.createGain(); this.musicBus.gain.value = 0; this.musicBus.connect(this.master);
+    // صدى صناعي (impulse response مولّد)
+    const len = Math.floor(c.sampleRate * 2.4), ir = c.createBuffer(2, len, c.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
     }
-    if (this.ctx.state === "suspended") this.ctx.resume();
-    return this.ctx;
+    this.reverb = c.createConvolver(); this.reverb.buffer = ir;
+    const wet = c.createGain(); wet.gain.value = 0.35;
+    this.reverb.connect(wet); wet.connect(this.master);
+    return c;
+  }
+};
+
+const Sound = {
+  on: LS.get(SOUND_KEY) !== "off",
+  allowed(o) { return o.music ? Music.on : this.on; },
+  route(c, node, o, t) {
+    const dest = o.music ? AudioEngine.musicBus : AudioEngine.sfxBus;
+    node.connect(dest);
+    if (o.rev) {
+      const s = c.createGain(); s.gain.value = o.rev;
+      node.connect(s);
+      if (o.music) { const g = c.createGain(); s.connect(g); g.connect(AudioEngine.reverb); }
+      else s.connect(AudioEngine.reverb);
+    }
   },
-  tone(freq, dur, o = {}) {
-    if (!this.on) return;
-    const c = this.get(); if (!c) return;
-    const { type = "sine", vol = 0.18, delay = 0, slide = 0 } = o;
-    const t = c.currentTime + delay;
-    const osc = c.createOscillator(), g = c.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, t);
-    if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(40, freq + slide), t + dur);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + 0.015);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.connect(g); g.connect(c.destination);
-    osc.start(t); osc.stop(t + dur + 0.05);
+  // نغمة بمغلف صوتي، ممكن تكون عدة مذبذبات مع detune وفلتر واهتزاز
+  voice(freq, dur, o = {}) {
+    if (!this.allowed(o)) return;
+    const c = AudioEngine.init(); if (!c) return;
+    const { type = "sine", vol = 0.15, delay = 0, attack = 0.008, slide = 0, detune = 0, voices = 1, cutoff = 0, vibrato = 0 } = o;
+    const t = o.at != null ? o.at : c.currentTime + delay;
+    const rel = dur;
+    const end = t + attack + rel + 0.05;
+    const env = c.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.exponentialRampToValueAtTime(vol, t + attack);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + attack + rel);
+    let out = env;
+    if (cutoff) {
+      const f = c.createBiquadFilter(); f.type = "lowpass"; f.frequency.setValueAtTime(cutoff, t); f.Q.value = 0.7;
+      env.connect(f); out = f;
+    }
+    this.route(c, out, o, t);
+    for (let i = 0; i < voices; i++) {
+      const osc = c.createOscillator(); osc.type = type;
+      osc.frequency.setValueAtTime(freq, t);
+      if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), t + attack + rel);
+      if (voices > 1) osc.detune.value = (i - (voices - 1) / 2) * detune;
+      if (vibrato) {
+        const l = c.createOscillator(), lg = c.createGain();
+        l.frequency.value = vibrato; lg.gain.value = freq * 0.025;
+        l.connect(lg); lg.connect(osc.frequency); l.start(t); l.stop(end);
+      }
+      osc.connect(env); osc.start(t); osc.stop(end);
+    }
   },
+  // ضوضاء مفلترة (للووش، الطبول، الصنج...)
   noise(dur, o = {}) {
-    if (!this.on) return;
-    const c = this.get(); if (!c) return;
-    const { vol = 0.15, delay = 0, freq = 1000, q = 1, type = "bandpass" } = o;
-    const t = c.currentTime + delay;
+    if (!this.allowed(o)) return;
+    const c = AudioEngine.init(); if (!c) return;
+    const { vol = 0.15, delay = 0, freq = 1000, to = 0, q = 1, type = "bandpass", attack = 0.005 } = o;
+    const t = o.at != null ? o.at : c.currentTime + delay;
     const len = Math.max(1, Math.floor(c.sampleRate * dur));
     const buf = c.createBuffer(1, len, c.sampleRate);
     const data = buf.getChannelData(0);
     for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
     const src = c.createBufferSource(); src.buffer = buf;
-    const f = c.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const f = c.createBiquadFilter(); f.type = type; f.Q.value = q;
+    f.frequency.setValueAtTime(freq, t);
+    if (to) f.frequency.exponentialRampToValueAtTime(to, t + dur);
     const g = c.createGain();
-    g.gain.setValueAtTime(vol, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(f); f.connect(g); g.connect(c.destination);
+    src.connect(f); f.connect(g);
+    this.route(c, g, o, t);
     src.start(t); src.stop(t + dur + 0.02);
   }
 };
-const notes = (seq, o = {}) => seq.forEach(([f, d, delay]) => Sound.tone(f, d, { ...o, delay }));
-const SFX = {
-  click:    () => Sound.tone(520, 0.07, { type: "triangle", vol: 0.1 }),
-  add:      () => notes([[523, .12, 0], [784, .18, .08]], { type: "triangle" }),
-  remove:   () => Sound.tone(420, 0.18, { type: "square", vol: 0.06, slide: -250 }),
-  select:   () => Sound.tone(880, 0.1, { type: "triangle", vol: 0.12, slide: 300 }),
-  message:  () => Sound.tone(1250, 0.07, { vol: 0.08 }),
-  start:    () => notes([[523, .15, 0], [659, .15, .1], [784, .15, .2], [1047, .35, .3]], { type: "triangle", vol: .16 }),
-  whoosh:   () => Sound.noise(0.35, { freq: 1200, q: 0.7, vol: 0.12 }),
-  reveal:   () => { SFX.whoosh(); notes([[880, .25, .15], [1320, .45, .25]], { vol: .12 }); },
-  outsider: () => { SFX.whoosh(); notes([[196, .5, .1], [185, .5, .45], [147, .9, .8]], { type: "sawtooth", vol: .08 }); },
-  hide:     () => Sound.tone(700, 0.15, { type: "sine", vol: 0.1, slide: -400 }),
-  tick:     () => Sound.tone(1100, 0.05, { type: "square", vol: 0.05 }),
-  timeUp:   () => notes([[880, .2, 0], [880, .2, .3], [880, .5, .6]], { type: "square", vol: .1 }),
-  vote:     () => notes([[660, .08, 0], [990, .15, .07]], { type: "triangle", vol: .14 }),
-  drumroll: () => {
-    for (let i = 0; i < 26; i++) Sound.noise(0.06, { delay: i * 0.08, freq: 250 + i * 8, q: 1.5, vol: 0.05 + i * 0.007 });
-    Sound.noise(1.2, { delay: 2.1, freq: 7000, type: "highpass", vol: 0.18 });
-    Sound.tone(110, 0.4, { delay: 2.1, vol: 0.25 });
-  },
-  caught:   () => notes([[523, .15, 0], [659, .15, .12], [784, .15, .24], [1047, .2, .36], [784, .12, .56], [1047, .6, .68]], { type: "triangle", vol: .16 }),
-  escaped:  () => notes([[392, .3, 0], [370, .3, .3], [349, .3, .6], [330, .8, .9]], { type: "sawtooth", vol: .07 }),
-  correct:  () => notes([[784, .1, 0], [988, .1, .08], [1175, .1, .16], [1568, .45, .24]], { vol: .15 }),
-  wrong:    () => Sound.tone(140, 0.6, { type: "sawtooth", vol: 0.12, slide: -40 })
-};
-function vibrate(p) { try { navigator.vibrate && navigator.vibrate(p); } catch {} }
 
-/* ---------- تأثيرات بصرية ---------- */
-function confetti(n = 70, emojis = ["🎉", "✨", "🎊", "⭐"]) {
-  const colors = ["#ffcc00", "#ff5e78", "#3ddc97", "#7597de", "#ffffff", "#c084fc"];
-  for (let i = 0; i < n; i++) {
-    const d = document.createElement("div");
-    d.className = "confetti";
-    if (Math.random() < 0.35) d.textContent = emojis[rand(emojis.length)];
-    else { d.classList.add("piece"); d.style.background = colors[rand(colors.length)]; }
-    d.style.left = Math.random() * 100 + "vw";
-    d.style.animationDuration = 2 + Math.random() * 2 + "s";
-    d.style.animationDelay = Math.random() * 0.6 + "s";
-    d.style.setProperty("--rot", (rand(720) - 360) + "deg");
-    d.style.setProperty("--drift", (rand(200) - 100) + "px");
-    document.body.appendChild(d);
-    setTimeout(() => d.remove(), 5000);
-  }
+const N = m => 440 * Math.pow(2, (m - 69) / 12);   // رقم MIDI إلى تردد
+function bell(m, delay, vol = 0.1) {
+  Sound.voice(N(m), 1.1, { vol, delay, attack: 0.004, rev: 0.45 });
+  Sound.voice(N(m + 12), 0.5, { vol: vol * 0.35, delay, attack: 0.004, rev: 0.45 });
 }
+function brass(chord, delay, dur, vol = 0.045) {
+  chord.forEach(m => Sound.voice(N(m), dur, { type: "sawtooth", voices: 2, detune: 7, cutoff: 2400, vol, delay, attack: 0.03, rev: 0.3 }));
+}
+function snare(delay, vol) {
+  Sound.noise(0.09, { type: "highpass", freq: 1400, vol, delay });
+  Sound.voice(190, 0.05, { vol: vol * 0.6, delay, slide: -60 });
+}
+function crash(delay, vol = 0.2) { Sound.noise(1.8, { type: "highpass", freq: 5000, vol, delay, rev: 0.3 }); }
+
+const SFX = {
+  click:    () => Sound.voice(1500, 0.045, { slide: -500, vol: 0.06 }),
+  pop:      () => Sound.voice(480, 0.11, { slide: 700, vol: 0.13, rev: 0.1 }),
+  select:   () => SFX.pop(),
+  add:      () => { Sound.voice(N(72), 0.14, { type: "triangle", vol: 0.12 }); Sound.voice(N(79), 0.25, { type: "triangle", vol: 0.12, delay: 0.08, rev: 0.3 }); },
+  remove:   () => Sound.voice(520, 0.2, { type: "triangle", slide: -320, vol: 0.1 }),
+  join:     () => { bell(76, 0, 0.09); bell(72, 0.18, 0.09); },
+  message:  () => Sound.voice(N(86), 0.1, { vol: 0.06, slide: 250, rev: 0.2 }),
+  coin:     () => { Sound.voice(N(83), 0.07, { type: "square", vol: 0.05, cutoff: 5000 }); Sound.voice(N(88), 0.32, { type: "square", vol: 0.05, delay: 0.07, cutoff: 5000, rev: 0.2 }); },
+  start:    () => { [60, 64, 67, 72, 76, 79].forEach((m, i) => bell(m, i * 0.065, 0.09)); Sound.noise(0.8, { type: "highpass", freq: 7000, vol: 0.05, delay: 0.3, rev: 0.4 }); },
+  whoosh:   () => Sound.noise(0.45, { freq: 300, to: 3500, q: 1.2, vol: 0.16 }),
+  flip:     () => { Sound.noise(0.2, { freq: 2200, to: 500, q: 0.8, vol: 0.14 }); Sound.voice(150, 0.18, { slide: -90, vol: 0.25, delay: 0.13 }); },
+  reveal:   () => { SFX.flip(); [84, 88, 91, 96].forEach((m, i) => bell(m, 0.22 + i * 0.08, 0.07)); },
+  outsider: () => {
+    SFX.flip();
+    Sound.voice(N(45), 1.7, { type: "sawtooth", voices: 3, detune: 22, cutoff: 650, vol: 0.06, delay: 0.15, attack: 0.06, rev: 0.6 });
+    Sound.voice(N(46), 1.7, { type: "sawtooth", voices: 2, detune: 18, cutoff: 600, vol: 0.045, delay: 0.15, attack: 0.06, rev: 0.6 });
+    Sound.voice(85, 1.0, { slide: -45, vol: 0.32, delay: 0.15 });
+  },
+  hide:     () => Sound.noise(0.22, { freq: 3000, to: 450, vol: 0.1 }),
+  tick:     () => Sound.noise(0.03, { freq: 3800, q: 5, vol: 0.14 }),
+  heartbeat:() => { Sound.voice(72, 0.14, { vol: 0.35, slide: -20 }); Sound.voice(66, 0.14, { vol: 0.25, delay: 0.17, slide: -20 }); },
+  timeUp:   () => { [88, 84, 88, 84, 88].forEach((m, i) => bell(m, i * 0.14, 0.09)); vibrate(400); },
+  vote:     () => { Sound.voice(N(76), 0.11, { type: "triangle", vol: 0.12 }); Sound.voice(N(83), 0.3, { type: "triangle", vol: 0.12, delay: 0.09, rev: 0.3 }); },
+  drumroll: () => {
+    for (let i = 0; i < 30; i++) snare(i * 0.07, 0.04 + i * 0.006);
+    crash(2.1, 0.22);
+    Sound.voice(92, 0.9, { slide: -50, vol: 0.42, delay: 2.1 });
+  },
+  caught:   () => {
+    brass([60, 64, 67], 0, 0.16); brass([60, 64, 67], 0.19, 0.16); brass([65, 69, 72], 0.38, 0.16);
+    brass([67, 71, 74], 0.57, 0.3); brass([72, 76, 79], 0.92, 1.3, 0.05);
+    crash(0.92, 0.16); [84, 88, 91].forEach((m, i) => bell(m, 1.0 + i * 0.07, 0.05));
+  },
+  escaped:  () => {
+    [[58, 0, 0.32], [57, 0.36, 0.32], [56, 0.72, 0.32]].forEach(([m, d, l]) => Sound.voice(N(m), l, { type: "sawtooth", voices: 2, detune: 10, cutoff: 1000, vol: 0.08, delay: d, attack: 0.03 }));
+    Sound.voice(N(55), 1.1, { type: "sawtooth", voices: 2, detune: 10, cutoff: 1000, vol: 0.08, delay: 1.08, attack: 0.03, vibrato: 6 });
+  },
+  correct:  () => { [72, 76, 79, 84, 88].forEach((m, i) => bell(m, i * 0.06, 0.08)); setTimeout(SFX.coin, 380); },
+  wrong:    () => { Sound.voice(110, 0.5, { type: "square", voices: 2, detune: 40, cutoff: 900, vol: 0.08 }); Sound.voice(104, 0.5, { type: "square", cutoff: 700, vol: 0.05, delay: 0.05 }); },
+  win:      () => { brass([67, 71, 74], 0, 0.14); brass([72, 76, 79], 0.16, 0.9, 0.05); [91, 96].forEach((m, i) => bell(m, 0.2 + i * 0.1, 0.05)); }
+};
+
+/* ============================================================
+   موسيقى خلفية مولّدة (هادئة / متوترة)
+   ============================================================ */
+const Music = {
+  on: LS.get(MUSIC_KEY) !== "off",
+  mood: "calm", timer: null, next: 0, step: 0, duckT: null,
+  LEVEL: 0.5,
+  start() {
+    if (!this.on || this.timer) return;
+    const c = AudioEngine.init(); if (!c) return;
+    this.fadeTo(this.LEVEL, 2);
+    this.next = c.currentTime + 0.1; this.step = 0;
+    this.timer = setInterval(() => this.schedule(), 100);
+  },
+  stop() { clearInterval(this.timer); this.timer = null; this.fadeTo(0, 0.4); },
+  fadeTo(v, s) {
+    const c = AudioEngine.ctx; if (!c) return;
+    const g = AudioEngine.musicBus.gain, now = c.currentTime;
+    g.cancelScheduledValues(now); g.setValueAtTime(g.value, now); g.linearRampToValueAtTime(v, now + s);
+  },
+  duck(sec) {
+    if (!this.timer) return;
+    this.fadeTo(0.06, 0.3);
+    clearTimeout(this.duckT);
+    this.duckT = setTimeout(() => { if (this.timer) this.fadeTo(this.LEVEL, 1.5); }, sec * 1000);
+  },
+  setMood(m) { this.mood = m; },
+  schedule() {
+    const c = AudioEngine.ctx; if (!c) return;
+    const bpm = this.mood === "tense" ? 108 : 88;
+    const eighth = 60 / bpm / 2;
+    if (this.next < c.currentTime - 0.2) this.next = c.currentTime + 0.05;
+    while (this.next < c.currentTime + 0.35) { this.play(this.step, this.next, eighth); this.next += eighth; this.step++; }
+  },
+  play(step, t, e) {
+    const calm = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]];   // Am F C G
+    const tense = [[57, 60, 64], [50, 53, 57], [52, 56, 59], [57, 60, 63]];  // Am Dm E Adim
+    const tenseMood = this.mood === "tense";
+    const prog = tenseMood ? tense : calm;
+    const s = step % 8, chord = prog[Math.floor(step / 8) % 4];
+    const M = { music: true, at: t };
+    if (s === 0) {
+      chord.forEach(n => Sound.voice(N(n), e * 8, { ...M, type: "triangle", vol: 0.03, attack: 0.5, voices: 2, detune: 9, cutoff: 1100, rev: 0.6 }));
+      Sound.voice(N(chord[0] - 24), e * 6, { ...M, vol: 0.08, attack: 0.02 });
+    }
+    const arp = [0, 1, 2, 1, 2, 0, 1, 2];
+    if (tenseMood || s % 2 === 0 || Math.random() < 0.35)
+      Sound.voice(N(chord[arp[s]] + 12 + (s >= 4 ? 12 : 0)), e * 1.6, { ...M, vol: 0.032, attack: 0.004, rev: 0.45 });
+    if (s === 0 || s === 4) Sound.voice(140, 0.22, { ...M, slide: -95, vol: tenseMood ? 0.14 : 0.09 });
+    if (s % 2 === 1) Sound.noise(0.035, { ...M, type: "highpass", freq: 8000, vol: tenseMood ? 0.03 : 0.018 });
+    if (tenseMood) Sound.voice(N(chord[0] - 12), e * 0.8, { ...M, type: "sawtooth", cutoff: 400, vol: 0.035, attack: 0.005 });
+  }
+};
+document.addEventListener("pointerdown", () => Music.start(), { once: true });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") Music.stop(); else if (AudioEngine.ctx) Music.start();
+});
+
+/* ============================================================
+   قصاصات بفيزياء على canvas
+   ============================================================ */
+const FX = { cv: null, cx: null, parts: [], raf: 0, w: 0, h: 0 };
+const FX_COLORS = ["#ff4d8d", "#ffb020", "#22d3ee", "#8b5cf6", "#2ee59d", "#ffffff", "#ffd43b"];
+function fxCanvas() {
+  if (FX.cv) return;
+  FX.cv = document.createElement("canvas"); FX.cv.id = "fx";
+  document.body.appendChild(FX.cv);
+  FX.cx = FX.cv.getContext("2d");
+  const resize = () => {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    FX.w = innerWidth; FX.h = innerHeight;
+    FX.cv.width = FX.w * dpr; FX.cv.height = FX.h * dpr;
+    FX.cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  };
+  resize(); addEventListener("resize", resize);
+}
+function addPart(p, emojis) {
+  p.rot = Math.random() * Math.PI * 2; p.vr = (Math.random() - 0.5) * 0.3;
+  p.wob = Math.random() * 10; p.vw = 0.05 + Math.random() * 0.1;
+  if (emojis && Math.random() < 0.3) { p.emoji = emojis[rand(emojis.length)]; p.size = 20 + rand(14); }
+  else { p.color = FX_COLORS[rand(FX_COLORS.length)]; p.w = 7 + rand(6); p.hh = 10 + rand(8); p.circle = Math.random() < 0.25; }
+  FX.parts.push(p);
+}
+function confetti(n = 140, emojis = ["🎉", "✨", "🎊", "⭐"]) {
+  if (reduceMotion) return;
+  fxCanvas();
+  for (let i = 0; i < n; i++) addPart({ x: Math.random() * FX.w, y: -20 - Math.random() * FX.h * 0.5, vx: (Math.random() - 0.5) * 3, vy: 2 + Math.random() * 3, g: 0.05, drag: 0.995 }, emojis);
+  fxLoop();
+}
+function burst(x, y, n = 60, emojis) {
+  if (reduceMotion) return;
+  fxCanvas();
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, sp = 4 + Math.random() * 9;
+    addPart({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 4, g: 0.25, drag: 0.97 }, emojis);
+  }
+  fxLoop();
+}
+function burstFrom(el, n, emojis) {
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  burst(r.left + r.width / 2, r.top + r.height / 2, n, emojis);
+}
+function fxLoop() {
+  if (FX.raf) return;
+  const tick = () => {
+    const { cx, w, h } = FX;
+    cx.clearRect(0, 0, w, h);
+    FX.parts = FX.parts.filter(p => p.y < h + 60 && p.x > -60 && p.x < w + 60);
+    for (const p of FX.parts) {
+      p.vx *= p.drag; p.vy = p.vy * p.drag + p.g;
+      if (p.vy > 4.5 && p.g < 0.1) p.vy = 4.5;
+      p.wob += p.vw; p.rot += p.vr;
+      p.x += p.vx + Math.sin(p.wob) * 0.8; p.y += p.vy;
+      cx.save(); cx.translate(p.x, p.y); cx.rotate(p.rot);
+      if (p.emoji) { cx.font = p.size + "px serif"; cx.textAlign = "center"; cx.fillText(p.emoji, 0, 0); }
+      else {
+        cx.scale(1, Math.cos(p.wob * 2));
+        cx.fillStyle = p.color;
+        if (p.circle) { cx.beginPath(); cx.arc(0, 0, p.w / 2, 0, Math.PI * 2); cx.fill(); }
+        else cx.fillRect(-p.w / 2, -p.hh / 2, p.w, p.hh);
+      }
+      cx.restore();
+    }
+    if (FX.parts.length) FX.raf = requestAnimationFrame(tick);
+    else { FX.raf = 0; cx.clearRect(0, 0, w, h); }
+  };
+  FX.raf = requestAnimationFrame(tick);
+}
+
+/* ============================================================
+   الخلفية: إيموجيات طايرة
+   ============================================================ */
 function setFloaters(emojis) {
   const layer = document.getElementById("bg");
+  const sig = emojis.join("");
+  if (layer.dataset.sig === sig) return;
+  layer.dataset.sig = sig;
   layer.innerHTML = "";
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 12; i++) {
     const s = document.createElement("span");
     s.textContent = emojis[i % emojis.length];
-    s.style.left = Math.random() * 95 + "vw";
-    s.style.fontSize = 24 + rand(28) + "px";
-    s.style.animationDuration = 14 + Math.random() * 12 + "s";
-    s.style.animationDelay = -Math.random() * 20 + "s";
+    s.style.left = Math.random() * 92 + "vw";
+    s.style.fontSize = 22 + rand(30) + "px";
+    s.style.animationDuration = 16 + Math.random() * 14 + "s";
+    s.style.animationDelay = -Math.random() * 24 + "s";
     layer.appendChild(s);
   }
 }
 const HOME_FLOATERS = Object.values(CATEGORIES).map(c => c.icon).concat(["🕵️", "🤫", "❓"]);
 
-/* ---------- كارت الدور (مشترك بين الوضعين) ---------- */
+/* ============================================================
+   مكونات الواجهة المشتركة
+   ============================================================ */
+const AV_EMOJI = ["🦊", "🐼", "🐸", "🦁", "🐯", "🐵", "🐨", "🐙", "🦄", "🐲", "🐧", "🦉", "🐰", "🐻", "🐮", "🐷"];
+const AV_COLORS = ["#ff6b6b", "#ffa94d", "#ffd43b", "#69db7c", "#38d9a9", "#4dabf7", "#748ffc", "#da77f2", "#f783ac", "#20c997", "#fab005", "#5c7cfa"];
+function hashStr(s) { let h = 7; for (const ch of String(s)) h = (h * 31 + ch.codePointAt(0)) | 0; return Math.abs(h); }
+function avatar(key, size = "") {
+  const h = hashStr(key);
+  return `<span class="av ${size}" style="--c:${AV_COLORS[h % AV_COLORS.length]}">${AV_EMOJI[(h >> 4) % AV_EMOJI.length]}</span>`;
+}
+function pkey(p) { return p.id || p.name; }
+
+// كرت الدور: يبدأ مقلوب وينقلب ثلاثي الأبعاد
 function roleCardHtml(isOut, word, emoji) {
-  return isOut
-    ? `<div class="role-box role-out glow-red">
-         <div class="big-emoji wiggle">🕵️</div>
-         <div>أنت برا السالفة 🤫</div>
-         <div style="font-size:1rem;font-weight:400;margin-top:10px">حاول تعرف السالفة وما تنكشف</div>
-       </div>`
-    : `<div class="role-box role-word flip">
-         <div style="font-size:1rem;font-weight:400">السالفة هي</div>
-         <div class="big-emoji bounce">${esc(emoji)}</div>
-         <div>${esc(word)}</div>
-       </div>`;
+  return `
+    <div class="flip-card">
+      <div class="flip-inner">
+        <div class="face back-face"><div class="card-mark">؟</div></div>
+        <div class="face front-face ${isOut ? "is-out" : "is-word"}">
+          ${isOut
+            ? `<div class="big-emoji wiggle">🕵️</div>
+               <div class="role-title">أنت برا السالفة</div>
+               <div class="role-sub">حاول تعرف السالفة وما تنكشف 🤫</div>`
+            : `<div class="role-sub">السالفة هي</div>
+               <div class="big-emoji float">${esc(emoji)}</div>
+               <div class="role-title">${esc(word)}</div>`}
+        </div>
+      </div>
+    </div>`;
 }
 
-/* ---------- صوت الأزرار وزر الكتم ---------- */
+// مؤقت دائري
+const RING_C = 2 * Math.PI * 52;
+function timerHtml() {
+  return `
+    <div class="ring-wrap" id="ringWrap">
+      <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+        <defs><linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs>
+        <circle class="ring-track" cx="60" cy="60" r="52"/>
+        <circle class="ring-prog" id="ringProg" cx="60" cy="60" r="52" style="stroke-dasharray:${RING_C};stroke-dashoffset:0"/>
+      </svg>
+      <div class="ring-txt" id="timer">3:00</div>
+    </div>`;
+}
+function updateTimer(sec, total) {
+  const t = document.getElementById("timer"), p = document.getElementById("ringProg"), w = document.getElementById("ringWrap");
+  if (!t || !p) return false;
+  p.style.strokeDashoffset = RING_C * (1 - Math.max(0, sec) / total);
+  t.textContent = sec > 0 ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : "⏰";
+  w.classList.toggle("hurry", sec > 0 && sec <= 10);
+  w.classList.toggle("done", sec <= 0);
+  return true;
+}
+
+function suspenseHtml() {
+  return `
+    <div class="suspense">
+      <div class="spot"></div>
+      <div class="big-emoji drum">🥁</div>
+      <h2 class="suspense-title">واللي برا السالفة هو</h2>
+      <div class="dots"><span></span><span></span><span></span></div>
+    </div>`;
+}
+
+function voteBarsHtml(players, counts, outsiderKey, keyOf) {
+  const n = players.length;
+  return players.map((x, i) => {
+    const k = keyOf(x, i);
+    const c = Number(counts[k]) || 0;
+    const isOut = k === outsiderKey;
+    return `
+      <div class="vote-row ${isOut ? "is-out" : ""}" style="--i:${i}">
+        ${avatar(pkey(x), "sm")}
+        <div class="vote-main">
+          <div class="vote-top"><span>${esc(x.name)}${isOut ? " 🕵️" : ""}</span><span><b data-count="${c}">${c}</b> صوت</span></div>
+          <div class="bar-wrap"><div class="bar" style="--w:${(c / Math.max(1, n - 1)) * 100}%"></div></div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function outsiderBoxHtml(caught, player) {
+  return `
+    <div class="reveal-box ${caught ? "caught" : "escaped"}">
+      <div class="rays"></div>
+      <div class="reveal-label">اللي برا السالفة هو</div>
+      <div class="reveal-av">${avatar(pkey(player), "xl")}</div>
+      <div class="reveal-name">${esc(player.name)}</div>
+      <div class="status-pill">${caught ? "انكشف! 🎯" : "فلت منكم! 😎💨"}</div>
+    </div>`;
+}
+
+function makeGuessOptions(cat, word, emoji) {
+  const others = shuffle(CATEGORIES[cat].words.filter(w => w[0] !== word)).slice(0, 7);
+  return shuffle([[word, emoji], ...others]);
+}
+function optionsHtml(options) {
+  return `<div class="grid opts stagger">
+    ${options.map(([w, e], i) => `<button class="opt" data-g="${i}" data-quiet="1" style="--i:${i}"><span class="opt-emoji">${esc(e)}</span><span>${esc(w)}</span></button>`).join("")}
+  </div>`;
+}
+
+function wordRevealHtml(word, emoji) {
+  return `
+    <div class="word-reveal pop">
+      <div class="role-sub">السالفة كانت</div>
+      <div class="big-emoji float">${esc(emoji)}</div>
+      <div class="role-title">${esc(word)}</div>
+    </div>`;
+}
+
+// منصة التتويج + باقي الترتيب
+function rankingHtml(players) {
+  const r = players.slice().sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+  const top = r.slice(0, 3), rest = r.slice(3);
+  const pod = i => {
+    const p = top[i]; if (!p) return "";
+    const sc = Number(p.score) || 0;
+    return `
+      <div class="pod p${i + 1}" style="--d:${[1, 0, 2][i]}">
+        ${i === 0 ? `<div class="crown">👑</div>` : ""}
+        ${avatar(pkey(p), i === 0 ? "lg" : "md")}
+        <div class="pod-name">${esc(p.name)}</div>
+        <div class="pod-score"><b data-count="${sc}">${sc}</b> ⭐</div>
+        <div class="pod-block">${i + 1}</div>
+      </div>`;
+  };
+  return `
+    <div class="podium">${pod(1)}${pod(0)}${pod(2)}</div>
+    ${rest.length ? `<div class="rest stagger">${rest.map((p, i) => `
+      <div class="rest-row" style="--i:${i}"><span class="rank">${i + 4}</span>${avatar(pkey(p), "sm")}<span class="pname">${esc(p.name)}</span><span><b data-count="${Number(p.score) || 0}">${Number(p.score) || 0}</b> ⭐</span></div>`).join("")}</div>` : ""}`;
+}
+
+function notesHtml(notes) {
+  return notes.length
+    ? notes.map((n, i) => `<div class="note" style="--i:${i}">${esc(n)}</div>`).join("")
+    : `<div class="note muted">ما أحد أخذ نقاط 🤷</div>`;
+}
+function playCoins(n) { for (let i = 0; i < Math.min(n, 6); i++) setTimeout(SFX.coin, 700 + i * 260); }
+
+/* ============================================================
+   الأزرار: صوت، تموّج، وأزرار الصوت والموسيقى
+   ============================================================ */
 document.addEventListener("click", e => {
   const b = e.target.closest("button");
   if (b && !b.disabled && !b.dataset.quiet) SFX.click();
 }, true);
 
+document.addEventListener("pointerdown", e => {
+  const b = e.target.closest("button");
+  if (!b || b.disabled || reduceMotion) return;
+  const r = b.getBoundingClientRect(), s = Math.max(r.width, r.height) * 2;
+  const rp = document.createElement("span");
+  rp.className = "ripple";
+  rp.style.width = rp.style.height = s + "px";
+  rp.style.left = (e.clientX - r.left - s / 2) + "px";
+  rp.style.top = (e.clientY - r.top - s / 2) + "px";
+  b.appendChild(rp);
+  setTimeout(() => rp.remove(), 650);
+});
+
 const muteBtn = document.getElementById("muteBtn");
-function updateMute() { muteBtn.textContent = Sound.on ? "🔊" : "🔇"; }
+const musicBtn = document.getElementById("musicBtn");
+function updateAudioBtns() {
+  muteBtn.textContent = Sound.on ? "🔊" : "🔇";
+  musicBtn.classList.toggle("off", !Music.on);
+}
 muteBtn.onclick = () => {
   Sound.on = !Sound.on;
   LS.set(SOUND_KEY, Sound.on ? "on" : "off");
-  updateMute();
-  if (Sound.on) SFX.select();
+  updateAudioBtns();
+  if (Sound.on) SFX.pop();
 };
-updateMute();
+musicBtn.onclick = () => {
+  Music.on = !Music.on;
+  LS.set(MUSIC_KEY, Music.on ? "on" : "off");
+  updateAudioBtns();
+  if (Music.on) Music.start(); else Music.stop();
+  toast(Music.on ? "الموسيقى شغالة 🎵" : "الموسيقى طافية");
+};
+updateAudioBtns();
