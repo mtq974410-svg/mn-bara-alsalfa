@@ -389,12 +389,24 @@ const HOME_FLOATERS = Object.values(CATEGORIES).map(c => c.icon).concat(["🕵�
 /* ============================================================
    مكونات الواجهة المشتركة
    ============================================================ */
-const AV_EMOJI = ["🦊", "🐼", "🐸", "🦁", "🐯", "🐵", "🐨", "🐙", "🦄", "🐲", "🐧", "🦉", "🐰", "🐻", "🐮", "🐷"];
 const AV_COLORS = ["#ff6b6b", "#ffa94d", "#ffd43b", "#69db7c", "#38d9a9", "#4dabf7", "#748ffc", "#da77f2", "#f783ac", "#20c997", "#fab005", "#5c7cfa"];
 function hashStr(s) { let h = 7; for (const ch of String(s)) h = (h * 31 + ch.codePointAt(0)) | 0; return Math.abs(h); }
+// كل لاعب يقدر يغيّر شخصيته: نحفظ رقم الشكل (av) لكل لاعب
+const AV_SEEDS = new Map();
+function setAvSeeds(players) {
+  AV_SEEDS.clear();
+  players.forEach(p => { const n = Number(p.av) || 0; if (n > 0 && n < 10000) AV_SEEDS.set(pkey(p), n); });
+}
+// صورة اللاعب: شخصية كرتونية مضحكة (من js/chars.js) فوق خلفية ملونة
 function avatar(key, size = "") {
-  const h = hashStr(key);
-  return `<span class="av ${size}" style="--c:${AV_COLORS[h % AV_COLORS.length]}">${AV_EMOJI[(h >> 4) % AV_EMOJI.length]}</span>`;
+  const seed = AV_SEEDS.get(key) || 0;
+  const full = seed ? key + ":" + seed : String(key);
+  const h = hashStr(full);
+  return `<span class="av ${size}" style="--c:${AV_COLORS[h % AV_COLORS.length]}">${charSvg(full)}</span>`;
+}
+// زر تغيير الشخصية (يلف على الأفاتار)
+function avatarBtn(key, attr) {
+  return `<button class="av-btn" ${attr} data-quiet="1" aria-label="غيّر الشخصية">${avatar(key)}<span class="av-swap">🔄</span></button>`;
 }
 function pkey(p) { return p.id || p.name; }
 
@@ -616,3 +628,22 @@ musicBtn.onclick = () => {
   toast(Music.on ? "الموسيقى شغالة 🎵" : "الموسيقى طافية");
 };
 updateAudioBtns();
+
+/* ----- الوضع الليلي / العادي ----- */
+const THEME_KEY = "bara_theme";
+const themeBtn = document.getElementById("themeBtn");
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  themeBtn.textContent = t === "light" ? "🌙" : "☀️";
+  themeBtn.setAttribute("aria-label", t === "light" ? "الوضع الليلي" : "الوضع العادي");
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", t === "light" ? "#f3eeff" : "#0b0820");
+}
+applyTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark");
+themeBtn.onclick = () => {
+  const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  LS.set(THEME_KEY, next);
+  applyTheme(next);
+  SFX.pop();
+  toast(next === "light" ? "الوضع العادي ☀️" : "الوضع الليلي 🌙");
+};

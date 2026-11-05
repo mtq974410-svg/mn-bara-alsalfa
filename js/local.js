@@ -19,10 +19,11 @@ function saveCats(list) { LS.set(CATS_KEY, JSON.stringify(list)); }
 function catPill(cat) { return `<div class="pill">${CATEGORIES[cat].icon} ${esc(cat)}</div>`; }
 
 /* ---------- الإعداد ---------- */
-function renderSetup() {
+function renderSetup(spun = -1) {
   Music.setMood("calm");
   setFloaters(HOME_FLOATERS);
   const p = state.players;
+  setAvSeeds(p);
   const hasScores = p.some(x => x.score > 0);
   paint("setup", `
     <div class="topbar">
@@ -38,12 +39,12 @@ function renderSetup() {
       <ul class="players">
         ${p.map((x, i) => `
           <li class="${i === state.lastNew ? "new" : ""}">
-            ${avatar(x.name)}<span class="pname">${esc(x.name)}</span>
+            ${avatarBtn(x.name, `data-av="${i}"`)}<span class="pname">${esc(x.name)}</span>
             ${x.score ? `<span class="pscore">${Number(x.score) || 0} ⭐</span>` : ""}
             <button class="x-btn" data-del="${i}" data-quiet="1" aria-label="حذف">✕</button>
           </li>`).join("")}
       </ul>
-      ${p.length < 3 ? `<p class="hint">لازم 3 لاعبين على الأقل</p>` : ""}
+      ${p.length < 3 ? `<p class="hint">لازم 3 لاعبين على الأقل</p>` : p.length ? `<p class="hint">اضغط على الشخصية عشان تغيّرها 🔄</p>` : ""}
     </div>
     <div class="card">
       <div class="card-title">📂 التصنيفات <span class="badge">اختار واحد أو أكثر</span></div>
@@ -66,6 +67,12 @@ function renderSetup() {
   document.getElementById("addBtn").onclick = add;
   input.onkeydown = e => { if (e.key === "Enter") add(); };
   app.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { SFX.remove(); p.splice(+b.dataset.del, 1); savePlayers(); renderSetup(); });
+  app.querySelectorAll("[data-av]").forEach(b => b.onclick = () => {
+    const pl = p[+b.dataset.av];
+    pl.av = ((Number(pl.av) || 0) + 1) % 10000;
+    savePlayers(); SFX.pop(); renderSetup(+b.dataset.av);
+  });
+  if (spun >= 0) { const b = app.querySelector(`[data-av="${spun}"]`); if (b) b.classList.add("spin-once"); }
   app.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { SFX.select(); state.cats = toggleCat(state.cats, b.dataset.cat); saveCats(state.cats); renderSetup(); });
   document.getElementById("startBtn").onclick = startRound;
   document.getElementById("homeBack").onclick = renderHome;
@@ -75,6 +82,7 @@ function renderSetup() {
 
 /* ---------- بداية الجولة ---------- */
 function startRound() {
+  setAvSeeds(state.players);
   SFX.start();
   Music.setMood("calm");
   state.roundCat = pickCat(state.cats);
