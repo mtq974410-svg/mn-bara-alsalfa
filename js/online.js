@@ -15,7 +15,7 @@ function myLook() { const l = LS.get(LOOK_KEY); return decodeLook(l) ? l : ""; }
 const HOST_PREFIX = "bara_host_";
 const MAX_PLAYERS = 12;
 // رقم نسخة الغرفة: لو صاحب الغرفة واللاعب عندهم نسخ مختلفة من اللعبة نطلب منهم تحديث الصفحة
-const ROOM_VERSION = 12;
+const ROOM_VERSION = 13;
 
 const myId = LS.get(PID_KEY) || (() => {
   const id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2);
@@ -159,15 +159,17 @@ function connect(code) {
   On.ch = ch;
   ch.on("broadcast", { event: "state" }, ({ payload }) => { if (!On.isHost) receiveState(payload); });
   ch.on("broadcast", { event: "action" }, ({ payload }) => { if (On.isHost) hostHandle(payload); });
+  ch.on("broadcast", { event: "rtc" }, ({ payload }) => Voice.onSignal(payload));
   ch.on("broadcast", { event: "closed" }, () => { if (!On.isHost) { leaveChannel(); renderError("صاحب الغرفة قفل الغرفة 🚪"); } });
   ch.on("presence", { event: "sync" }, () => {
     On.online = new Set(Object.keys(ch.presenceState()));
+    Voice.onPresence(ch.presenceState());
     if (On.isHost) commit(); else renderOnline();
   });
   ch.subscribe(async status => {
     if (ch !== On.ch) return;
     if (status === "SUBSCRIBED") {
-      await ch.track({ name: myName() });
+      await ch.track(Voice.meta());
       if (On.isHost) commit(); else sendJoin();
     }
   });
@@ -191,6 +193,7 @@ function connect(code) {
 function leaveChannel() {
   if (On.ch && On.sb) On.sb.removeChannel(On.ch);
   On.ch = null;
+  Voice.leave(true);
   clearTimeout(On.joinTimer);
   removeChat();
   On.chatSeenT = null;
@@ -442,6 +445,7 @@ function ensureChat() {
     </div>`;
   document.body.append(fab, sheet);
   document.body.classList.add("has-chat");
+  Voice.ensureUi();
   fab.onclick = () => toggleChat(true);
   document.getElementById("chatClose").onclick = () => toggleChat(false);
   const input = document.getElementById("chatInput");
@@ -487,6 +491,7 @@ function updateUnread() {
 
 function removeChat() {
   ["chatFab", "chatSheet"].forEach(id => { const el = document.getElementById(id); if (el) el.remove(); });
+  Voice.removeUi();
   document.body.classList.remove("has-chat");
   On.chatOpen = false;
 }
@@ -533,7 +538,7 @@ function renderOnline() {
   renderChat();
 
   // الدردشة لها رسم منفصل، فما نعيد رسم الشاشة بسبب رسالة جديدة
-  const sig = JSON.stringify([r.phase, [...On.online].sort(), On.ui, r.players, r.waiting, r.categories, r.round]);
+  const sig = JSON.stringify([r.phase, [...On.online].sort(), [...Voice.members], On.ui, r.players, r.waiting, r.categories, r.round]);
   if (sig === On.lastSig) return;
   On.lastSig = sig;
 
@@ -641,6 +646,7 @@ function renderLobby(screen) {
             <span class="status-dot ${On.online.has(p.id) ? "on" : ""}"></span>
             ${p.id === myId ? avatarBtn(p.id, 'data-myav="1"') : avatar(p.id)}
             <span class="pname">${esc(p.name)}</span>
+            ${voiceTag(p.id)}
             ${p.id === r.hostId ? `<span class="tag">👑 صاحب الغرفة</span>` : ""}
             ${p.id === myId ? `<span class="tag">أنت</span>` : ""}
             ${p.score ? `<span class="pscore">${Number(p.score) || 0} ⭐</span>` : ""}
