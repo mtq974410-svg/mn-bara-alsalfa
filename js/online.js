@@ -15,7 +15,8 @@ function myLook() { const l = LS.get(LOOK_KEY); return decodeLook(l) ? l : ""; }
 const HOST_PREFIX = "bara_host_";
 const MAX_PLAYERS = 12;
 // رقم نسخة الغرفة: لو صاحب الغرفة واللاعب عندهم نسخ مختلفة من اللعبة نطلب منهم تحديث الصفحة
-const ROOM_VERSION = 13;
+const ROOM_VERSION = 14;
+const CODE_LEN = 6;
 
 const myId = LS.get(PID_KEY) || (() => {
   const id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2);
@@ -28,6 +29,8 @@ const On = {
   room: null, online: new Set(),
   wasIn: false, joinTimer: null, lastJoinSent: 0,
   lastSig: null, lastPhase: null, lastQ: null,
+  hostPk: null, myRole: null, myVote: null, envSeq: 0, sawRoom: false, locked: false, fp: "", fpFor: "",
+  hq: Promise.resolve(), cq: Promise.resolve(), rate: new Map(), lastChat: new Map(), sendC: 0, sending: false, dirty: false,
   chatOpen: false, chatSeenT: null,
   ui: {}
 };
@@ -35,7 +38,37 @@ function freshUi() { return { shown: false, peek: false, resultShown: 0, suspens
 On.ui = freshUi();
 
 function myName() { return cleanText(LS.get(NAME_KEY), 20); }
-function shareLink(code) { return location.origin + location.pathname + "?room=" + code; }
+function shareLink(code) {
+  const k = On.isHost && Sec.pubDsa ? "#k=" + encodeURIComponent(Sec.pubDsa) : "";
+  return location.origin + location.pathname + "?room=" + code + k;
+}
+const SS = {
+  get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { sessionStorage.setItem(k, v); } catch {} }
+};
+function pinKey(code) { return "bara_pin_" + code; }
+function pkOf(id) {
+  const r = On.room;
+  const p = r && r.players.concat(r.waiting).find(x => x.id === id);
+  return p && validPub(p.pk) ? p.pk : null;
+}
+// بصمة الغرفة: 4 إيموجي من مفتاح توقيع صاحب الغرفة. لو نفسها عند الكل، ما أحد ينتحل صاحب الغرفة
+const FP_EMOJI = ["🍕","🐪","⚽","🚀","🌵","🎸","🦁","🍉","🎈","🐢","🌙","🔥","🍩","🦊","🎯","🐳","🌈","🍔","🦄","⭐","🍋","🐙","🎲","🌻",
+  "🍿","🦉","🚗","🍎","🐝","🎁","🌊","🍪","🦒","⛄","🎻","🍇","🐧","🚲","🌴","🍓","🦋","🎮","🍦","🐬","⚡","🌍","🍄","🦜",
+  "🎺","🍒","🐘","🛸","🌸","🍫","🦀","🎨","🍍","🐼","🚁","🌋","🍭","🦈","🎳","🥥"];
+async function fingerprint(pub) {
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", unb64(pub)));
+  return [0, 1, 2, 3].map(i => FP_EMOJI[h[i] % 64]).join(" ");
+}
+async function setFingerprint(pub) {
+  if (!validPub(pub) || On.fpFor === pub) return;
+  On.fpFor = pub;
+  On.fp = await fingerprint(pub);
+  renderOnline();
+}
+function cryptoError() {
+  renderError("متصفحك ما يدعم التشفير المطلوب للعب أونلاين 😕", "حدّث المتصفح، أو افتح اللعبة من الرابط اللي يبدأ بـ https.");
+}
 function codeTiles(code) { return `<div class="room-code">${[...code].map((d, i) => `<span style="--i:${i}">${esc(d)}</span>`).join("")}</div>`; }
 
 /* ---------- الشاشة الرئيسية ---------- */
@@ -59,7 +92,7 @@ function renderHome() {
       <button class="big" id="createBtn" data-quiet="1" style="margin-top:0">سوّي غرفة جديدة ➕</button>
       <div class="divider">أو ادخل غرفة بالكود</div>
       <div class="row">
-        <input id="codeInput" class="code-input" placeholder="0000" maxlength="4" inputmode="numeric" autocomplete="off">
+        <input id="codeInput" class="code-input" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="off">
         <button id="joinBtn" data-quiet="1">ادخل</button>
       </div>
     </div>
@@ -85,11 +118,11 @@ function renderHome() {
   document.getElementById("createBtn").onclick = () => { if (needName()) { SFX.start(); createRoom(); } };
   const join = () => {
     const code = codeEl.value.replace(/\D/g, "");
-    if (code.length !== 4) { shakeEl(codeEl); SFX.wrong(); return; }
+    if (code.length !== CODE_LEN) { shakeEl(codeEl); SFX.wrong(); return; }
     if (needName()) { SFX.select(); joinRoom(code); }
   };
   document.getElementById("joinBtn").onclick = join;
-  codeEl.oninput = () => { codeEl.value = codeEl.value.replace(/\D/g, "").slice(0, 4); };
+  codeEl.oninput = () => { codeEl.value = codeEl.value.replace(/\D/g, "").slice(0, CODE_LEN); };
   codeEl.onkeydown = e => { if (e.key === "Enter") join(); };
   document.getElementById("localBtn").onclick = renderSetup;
 }
@@ -125,21 +158,32 @@ function renderNameForRoom(code) {
 }
 
 /* ---------- الاتصال ---------- */
-function createRoom() {
-  const code = String(1000 + rand(9000));
+async function createRoom() {
+  try { await Sec.init(); } catch { cryptoError(); return; }
+  const code = String(100000 + secureInt(900000));
   On.isHost = true;
-  On.room = { v: ROOM_VERSION, code, hostId: myId, phase: "lobby", categories: loadCats(), players: [{ id: myId, name: myName(), score: 0, look: myLook() }], waiting: [], round: null, chat: [], seq: 1 };
+  On.room = {
+    v: ROOM_VERSION, code, hostId: myId, phase: "lobby", categories: loadCats(),
+    players: [{ id: myId, name: myName(), score: 0, look: myLook(), pk: Sec.pubEcdh }],
+    waiting: [], round: null, chat: [], seq: 1, locked: false,
+    gk: Sec.newGroupRaw(), ctr: {}          // gk و ctr خاصة بصاحب الغرفة وما تنرسل
+  };
   sysChat(`${myName()} سوّى الغرفة 🎉`);
   saveHost();
   connect(code);
 }
 
-function joinRoom(code) {
+async function joinRoom(code) {
+  try { await Sec.init(); } catch { cryptoError(); return; }
   let saved = null;
   try { saved = JSON.parse(LS.get(HOST_PREFIX + code)); } catch {}
   if (saved && saved.hostId === myId) {
     saved.categories = validCats(saved.categories);   // غرف محفوظة من نسخة قديمة
     saved.v = ROOM_VERSION;
+    if (typeof saved.gk !== "string" || saved.gk.length !== 44) saved.gk = Sec.newGroupRaw();
+    if (!saved.ctr || typeof saved.ctr !== "object") saved.ctr = {};
+    const me = saved.players.concat(saved.waiting || []).find(x => x.id === myId);
+    if (me) me.pk = Sec.pubEcdh;
     On.isHost = true; On.room = saved;
   }
   else { On.isHost = false; On.room = null; }
@@ -152,15 +196,23 @@ function connect(code) {
   On.sb = On.sb || window.supabase.createClient(SB_URL, SB_KEY);
   On.code = code;
   On.wasIn = false; On.lastSig = null; On.lastPhase = null;
+  On.hostPk = null; On.myRole = null; On.myVote = null; On.envSeq = 0; On.sawRoom = false; On.locked = false; On.fp = ""; On.fpFor = "";
+  if (On.isHost) setFingerprint(Sec.pubDsa);
   On.ui = freshUi();
   history.replaceState(null, "", "?room=" + code);
 
   const ch = On.sb.channel("bara:" + code, { config: { broadcast: { self: false }, presence: { key: myId } } });
   On.ch = ch;
-  ch.on("broadcast", { event: "state" }, ({ payload }) => { if (!On.isHost) receiveState(payload); });
-  ch.on("broadcast", { event: "action" }, ({ payload }) => { if (On.isHost) hostHandle(payload); });
+  ch.on("broadcast", { event: "state" }, ({ payload }) => { if (!On.isHost) On.cq = On.cq.then(() => receiveEnvelope(payload)).catch(e => console.warn("state", e)); });
+  ch.on("broadcast", { event: "action" }, ({ payload }) => { if (On.isHost) On.hq = On.hq.then(() => hostReceive(payload)).catch(e => console.warn("action", e)); });
   ch.on("broadcast", { event: "rtc" }, ({ payload }) => Voice.onSignal(payload));
-  ch.on("broadcast", { event: "closed" }, () => { if (!On.isHost) { leaveChannel(); renderError("صاحب الغرفة قفل الغرفة 🚪"); } });
+  ch.on("broadcast", { event: "closed" }, async ({ payload }) => {
+    if (On.isHost || !payload || typeof payload.s !== "string") return;
+    const pin = SS.get(pinKey(code));
+    let msg = null; try { msg = JSON.parse(payload.s); } catch { return; }
+    if (!pin || !msg || msg.code !== code || !(await Sec.verify(pin, payload.s, payload.sig))) return;   // لازم يكون من صاحب الغرفة
+    leaveChannel(); renderError("صاحب الغرفة قفل الغرفة 🚪");
+  });
   ch.on("presence", { event: "sync" }, () => {
     On.online = new Set(Object.keys(ch.presenceState()));
     Voice.onPresence(ch.presenceState());
@@ -184,9 +236,19 @@ function connect(code) {
       </div>
       <button class="big ghost" id="cancelBtn">إلغاء</button>`);
     document.getElementById("cancelBtn").onclick = renderHome;
+    // نعيد طلب الدخول كل ثانيتين لين يقبلنا صاحب الغرفة
+    clearInterval(On.joinRetry);
+    On.joinRetry = setInterval(() => {
+      if (ch !== On.ch || On.room) { clearInterval(On.joinRetry); return; }
+      if (!On.locked) sendJoin();
+    }, 2000);
     On.joinTimer = setTimeout(() => {
-      if (!On.room && ch === On.ch) { leaveChannel(); renderError(`ما لقينا الغرفة ${esc(code)} 😕`, "تأكد من الكود، أو إن صاحب الغرفة فاتح اللعبة."); }
-    }, 8000);
+      if (On.room || ch !== On.ch) return;
+      leaveChannel();
+      if (On.sawRoom && On.locked) renderError("الغرفة مقفلة 🔒", "صاحب الغرفة قفل الغرفة، ما يقدر يدخلها أحد جديد.");
+      else if (On.sawRoom) renderError("صاحب الغرفة ما قبل دخولك 😕", "تأكد إن الغرفة مو مليانة، وجرب مرة ثانية.");
+      else renderError(`ما لقينا الغرفة ${esc(code)} 😕`, "تأكد من الكود، أو إن صاحب الغرفة فاتح اللعبة.");
+    }, 9000);
   }
 }
 
@@ -195,6 +257,7 @@ function leaveChannel() {
   On.ch = null;
   Voice.leave(true);
   clearTimeout(On.joinTimer);
+  clearInterval(On.joinRetry);
   removeChat();
   On.chatSeenT = null;
 }
@@ -213,34 +276,121 @@ function renderError(msg, sub = "") {
 }
 
 function sendAction(a) {
-  const payload = { ...a, from: myId };
-  if (On.isHost) hostHandle(payload);
-  else if (On.ch) On.ch.send({ type: "broadcast", event: "action", payload });
+  if (On.isHost) { hostHandle({ ...a, from: myId }); return; }
+  if (!On.ch) return;
+  if (a.type === "hello") {
+    On.ch.send({ type: "broadcast", event: "action", payload: { type: "hello", from: myId } });
+    return;
+  }
+  if (!On.hostPk) return;
+  // عدّاد يزيد دايماً: يمنع إعادة إرسال رسالة قديمة
+  On.sendC = Math.max(Date.now(), On.sendC + 1);
+  const body = { ...a, c: On.sendC };
+  const ch = On.ch;
+  Sec.pairKey(On.hostPk).then(k => Sec.seal(k, body)).then(box => {
+    if (ch === On.ch) ch.send({ type: "broadcast", event: "action", payload: { from: myId, box } });
+  }).catch(e => console.warn("send", e));
 }
-function sendJoin() { On.lastJoinSent = Date.now(); sendAction({ type: "join", name: myName(), look: myLook() }); }
+function sendJoin() {
+  On.lastJoinSent = Date.now();
+  if (!On.ch) return;
+  On.joinEncrypted = !!On.hostPk;
+  if (!On.hostPk) { sendAction({ type: "hello" }); return; }   // ننتظر مفتاح صاحب الغرفة أول
+  On.sendC = Math.max(Date.now(), On.sendC + 1);
+  const body = { type: "join", name: myName(), look: myLook(), c: On.sendC };
+  const ch = On.ch;
+  Sec.pairKey(On.hostPk).then(k => Sec.seal(k, body)).then(box => {
+    if (ch === On.ch) ch.send({ type: "broadcast", event: "action", payload: { from: myId, pk: Sec.pubEcdh, box } });
+  }).catch(e => console.warn("join", e));
+}
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && On.ch && !On.isHost) sendAction({ type: "hello" });
 });
 
 /* ---------- جهة اللاعب: استقبال الحالة ---------- */
-function receiveState(r) {
-  if (r && typeof r === "object" && r.code === On.code && r.v !== ROOM_VERSION) {
-    leaveChannel();
-    renderError("نسخة اللعبة عندك تختلف عن نسخة صاحب الغرفة 🔄", "خلّ الكل يسوي تحديث للصفحة (Ctrl + Shift + R أو اسحب الصفحة لتحت في الجوال) وادخلوا مرة ثانية.");
+function versionError() {
+  leaveChannel();
+  renderError("نسخة اللعبة عندك تختلف عن نسخة صاحب الغرفة 🔄", "خلّ الكل يسوي تحديث للصفحة (Ctrl + Shift + R أو اسحب الصفحة لتحت في الجوال) وادخلوا مرة ثانية.");
+}
+
+async function receiveEnvelope(payload) {
+  if (!payload || typeof payload.s !== "string" || payload.s.length > 500000 || typeof payload.sig !== "string") return;
+  let env; try { env = JSON.parse(payload.s); } catch { return; }
+  if (!env || typeof env !== "object" || env.code !== On.code) return;
+  if (env.v !== ROOM_VERSION) { versionError(); return; }
+  if (!validPub(env.hpk) || !validPub(env.hek) || typeof env.hostId !== "string" || typeof env.seq !== "number") return;
+  // التوقيع لازم يكون من صاحب الغرفة اللي ثبّتناه أول مرة (أو اللي جا في الرابط)
+  const pin = SS.get(pinKey(On.code));
+  if (pin && pin !== env.hpk) return;
+  if (!(await Sec.verify(env.hpk, payload.s, payload.sig))) return;
+  if (!pin) SS.set(pinKey(On.code), env.hpk);
+  setFingerprint(env.hpk);
+  if (env.seq <= On.envSeq) return;
+  On.envSeq = env.seq;
+  On.hostPk = env.hek; On.locked = !!env.locked; On.sawRoom = true;
+  const mine = env.keys && env.keys[myId];
+  if (!mine) {
+    if (On.wasIn) { leaveChannel(); renderError("صاحب الغرفة طلّعك من الغرفة 👋"); return; }
+    if (!env.locked && (!On.joinEncrypted || Date.now() - On.lastJoinSent > 1500)) sendJoin();
     return;
   }
+  let room, role;
+  try {
+    const k = await Sec.open(await Sec.pairKey(env.hek), mine);
+    room = await Sec.open(await Sec.groupKey(k.g), env.enc);
+    role = k.role && typeof k.role === "object" ? k.role : null;
+  } catch { return; }
+  if (!room || room.hostId !== env.hostId || room.seq !== env.seq) return;
+  On.myRole = role && typeof role.n === "number" ? { n: role.n, out: role.out === true, word: typeof role.word === "string" ? role.word : null, emoji: typeof role.emoji === "string" ? role.emoji : null } : null;
+  receiveState(room);
+}
+
+// نتأكد إن كل قيمة بالنوع والطول الصح قبل ما نعرضها
+function sanitizeRoom(r) {
+  const okId = x => typeof x === "string" && x.length > 0 && x.length <= 64;
+  const okInt = x => Number.isInteger(x) && x >= 0 && x < 1e6;
+  const PHASES = ["lobby", "roles", "questions", "vote", "result", "guess", "finish"];
+  if (typeof r.code !== "string" || !/^\d{6}$/.test(r.code) || !okId(r.hostId) || !okInt(r.seq) || !PHASES.includes(r.phase)) return false;
+  if (r.players.length > MAX_PLAYERS || r.waiting.length > MAX_PLAYERS || r.chat.length > 60) return false;
+  for (const p of r.players.concat(r.waiting)) {
+    if (!p || !okId(p.id) || typeof p.name !== "string" || p.name.length > 30) return false;
+    p.score = Number.isInteger(p.score) && p.score >= 0 && p.score < 1e5 ? p.score : 0;
+    if (p.look && !decodeLook(p.look)) p.look = "";
+    if (p.pk && !validPub(p.pk)) p.pk = "";
+  }
+  for (const m of r.chat) {
+    if (!m || typeof m.id !== "string" || m.id.length > 64 || typeof m.text !== "string" || m.text.length > 300 || typeof m.name !== "string" || m.name.length > 30 || typeof m.t !== "number") return false;
+  }
+  const rd = r.round;
+  if (rd) {
+    if (!okInt(rd.n) || !okInt(rd.q) || !okInt(rd.qi || 0)) return false;
+    if (!rd.pairs.every(pr => okId(pr[0]) && okId(pr[1]))) return false;
+    if (rd.outsiderId != null && !okId(rd.outsiderId)) return false;
+    if (rd.word != null && typeof rd.word !== "string") return false;
+    if (rd.emoji != null && typeof rd.emoji !== "string") return false;
+    if (rd.options && (!Array.isArray(rd.options) || rd.options.length > 12 || !rd.options.every(o => Array.isArray(o) && typeof o[0] === "string" && typeof o[1] === "string"))) return false;
+    if (rd.notes && (!Array.isArray(rd.notes) || !rd.notes.every(n => typeof n === "string" && n.length < 200))) return false;
+    rd.caught = rd.caught === true;
+  }
+  r.locked = r.locked === true;
+  return true;
+}
+
+function receiveState(r) {
+  if (r && typeof r === "object" && r.code === On.code && r.v !== ROOM_VERSION) { versionError(); return; }
   if (!r || typeof r !== "object" || !Array.isArray(r.players) || !Array.isArray(r.waiting) || !Array.isArray(r.chat) || r.code !== On.code) return;
   if (!Array.isArray(r.categories) || r.categories.some(c => !CATEGORIES[c])) return;
   if (r.round && (!Array.isArray(r.round.pairs) || !r.round.pairs.every(p => Array.isArray(p) && p.length === 2))) return;
   if (r.round && !CATEGORIES[r.round.cat]) return;
+  if (!sanitizeRoom(r)) return;
   if (On.room && (r.hostId !== On.room.hostId || r.seq < On.room.seq)) return;
   clearTimeout(On.joinTimer);
   On.room = r;
   const inRoom = r.players.some(p => p.id === myId) || r.waiting.some(p => p.id === myId);
   if (inRoom) On.wasIn = true;
   else if (On.wasIn) { leaveChannel(); renderError("صاحب الغرفة طلّعك من الغرفة 👋"); return; }
-  else if (Date.now() - On.lastJoinSent > 3000) sendJoin();
+  else if (Date.now() - On.lastJoinSent > 1500) sendJoin();
   renderOnline();
 }
 
@@ -251,8 +401,92 @@ function commit() {
   const r = On.room; if (!r) return;
   r.seq++;
   saveHost();
-  if (On.ch) On.ch.send({ type: "broadcast", event: "state", payload: r });
+  broadcastState();
   renderOnline();
+}
+
+// اللي يشوفه الكل: بدون السالفة ومين برا السالفة والأصوات لين وقت الكشف
+function publicRoom(r) {
+  const c = JSON.parse(JSON.stringify(r));
+  delete c.gk; delete c.ctr;
+  if (c.round) {
+    const reveal = ["result", "guess", "finish"].includes(c.phase);
+    if (!reveal) {
+      delete c.round.word; delete c.round.emoji; delete c.round.outsiderId; delete c.round.counts;
+      c.round.votes = Object.fromEntries(Object.keys(c.round.votes || {}).map(k => [k, true]));
+    }
+  }
+  return c;
+}
+function roleFor(r, id) {
+  const rd = r.round;
+  if (!rd) return null;
+  const out = rd.outsiderId === id;
+  return { n: rd.n, out, word: out ? null : rd.word, emoji: out ? null : rd.emoji };
+}
+
+// نرسل الحالة وحدة وحدة بالترتيب، ولو تغيرت أثناء الإرسال نرسل الأحدث بعدها
+async function broadcastState() {
+  if (On.sending) { On.dirty = true; return; }
+  On.sending = true;
+  try {
+    do { On.dirty = false; await sendStateNow(); } while (On.dirty);
+  } catch (e) { console.warn("broadcast", e); }
+  finally { On.sending = false; }
+}
+async function sendStateNow() {
+  const r = On.room, ch = On.ch;
+  if (!r || !ch || !On.isHost) return;
+  const keys = {};
+  for (const p of r.players.concat(r.waiting)) {
+    if (p.id === myId || !validPub(p.pk)) continue;
+    try { keys[p.id] = await Sec.seal(await Sec.pairKey(p.pk), { g: r.gk, role: roleFor(r, p.id) }); }
+    catch { /* مفتاح خربان: نتجاوزه */ }
+  }
+  const env = {
+    v: ROOM_VERSION, code: r.code, hostId: r.hostId, seq: r.seq, locked: !!r.locked,
+    hpk: Sec.pubDsa, hek: Sec.pubEcdh, keys,
+    enc: await Sec.seal(await Sec.groupKey(r.gk), publicRoom(r))
+  };
+  const s = JSON.stringify(env);
+  const sig = await Sec.sign(s);
+  if (ch === On.ch) ch.send({ type: "broadcast", event: "state", payload: { s, sig } });
+}
+
+// حد للرسائل: 30 رسالة كل 10 ثواني لكل لاعب
+function rateOk(id, limit = 30) {
+  const now = Date.now();
+  const list = (On.rate.get(id) || []).filter(t => now - t < 10000);
+  list.push(now);
+  On.rate.set(id, list);
+  return list.length <= limit;
+}
+
+async function hostReceive(p) {
+  const r = On.room;
+  if (!r || !p || typeof p !== "object" || typeof p.from !== "string" || p.from.length > 64 || p.from === myId) return;
+  if (!rateOk(p.from)) return;
+  if (p.box) {
+    // لاعب موجود: لازم تنفك بمفتاحه المسجّل. لاعب جديد: يرسل مفتاحه العام مع رسالة دخول مشفرة
+    let pk = pkOf(p.from);
+    const newcomer = !pk;
+    if (newcomer) {
+      if (!validPub(p.pk) || !rateOk("*join*", 6)) return;
+      pk = p.pk;
+    }
+    let a;
+    try { a = await Sec.open(await Sec.pairKey(pk), p.box); } catch { return; }   // مفتاح خربان أو مو منه: نرفضها
+    if (!a || typeof a !== "object" || typeof a.c !== "number" || typeof a.type !== "string") return;
+    if (newcomer && a.type !== "join") return;
+    if (a.c <= (r.ctr[p.from] || 0)) return;   // رسالة مكررة
+    r.ctr[p.from] = a.c;
+    a.from = p.from;
+    if (a.type === "join") a.pk = pk;
+    hostHandle(a);
+  } else if (p.type === "hello") {
+    if (!rateOk("*open*")) return;
+    hostHandle({ type: "hello", from: p.from });
+  }
 }
 
 function sysChat(text) {
@@ -284,9 +518,16 @@ function hostHandle(a) {
       break;
     }
     case "join": {
-      if (p || w) break;
+      if (!validPub(a.pk)) return;
+      const ex = p || w;
+      if (ex) {
+        if (ex.pk && ex.pk !== a.pk) return;   // واحد يحاول ياخذ مكان لاعب موجود
+        ex.pk = a.pk;
+        break;
+      }
+      if (r.locked) return;
       if (r.players.length + r.waiting.length >= MAX_PLAYERS) return;
-      const entry = { id: from, name: uniqueName(cleanText(a.name, 20) || "لاعب", r), score: 0, look: decodeLook(a.look) ? a.look : "" };
+      const entry = { id: from, name: uniqueName(cleanText(a.name, 20) || "لاعب", r), score: 0, look: decodeLook(a.look) ? a.look : "", pk: a.pk };
       if (r.phase === "lobby") r.players.push(entry); else r.waiting.push(entry);
       sysChat(`${entry.name} دخل الغرفة 👋`);
       break;
@@ -296,6 +537,7 @@ function hostHandle(a) {
       else if (p && r.phase === "lobby") r.players = r.players.filter(x => x.id !== from);
       else return;
       sysChat(`${(p || w).name} طلع من الغرفة 🚶`);
+      r.gk = Sec.newGroupRaw();   // مفتاح جديد عشان اللي طلع ما يقدر يقرأ بعدين
       break;
     }
     case "ready":
@@ -322,6 +564,8 @@ function hostHandle(a) {
       const text = cleanText(a.text, 200);
       const who = p || w;
       if (!text || !who) return;
+      if (from !== myId && Date.now() - (On.lastChat.get(from) || 0) < 500) return;   // ما نسمح بالإغراق
+      On.lastChat.set(from, Date.now());
       r.chat.push({ id: from, name: who.name, text, t: Date.now() });
       if (r.chat.length > 40) r.chat.splice(0, r.chat.length - 40);
       break;
@@ -398,6 +642,13 @@ const Host = {
     r.players = r.players.filter(x => x.id !== id);
     r.waiting = r.waiting.filter(x => x.id !== id);
     sysChat(`${p.name} طلع من الغرفة 🚶`);
+    r.gk = Sec.newGroupRaw();   // مفتاح جديد عشان اللي انطرد ما يقدر يقرأ بعدين
+    commit();
+  },
+  toggleLock() {
+    const r = On.room;
+    r.locked = !r.locked;
+    sysChat(r.locked ? "صاحب الغرفة قفل الغرفة 🔒 ما يقدر يدخل أحد جديد" : "صاحب الغرفة فتح الغرفة 🔓");
     commit();
   },
   skipRoles() { if (On.room.phase === "roles") { toQuestions(); commit(); } },
@@ -411,9 +662,13 @@ const Host = {
     r.phase = "lobby"; commit();
   },
   resetScores() { On.room.players.forEach(p => p.score = 0); commit(); },
-  close() {
-    if (On.ch) On.ch.send({ type: "broadcast", event: "closed", payload: {} });
-    LS.del(HOST_PREFIX + On.room.code);
+  async close() {
+    const code = On.room.code, ch = On.ch;
+    try {
+      const s = JSON.stringify({ code, closed: true, t: Date.now() });
+      if (ch) ch.send({ type: "broadcast", event: "closed", payload: { s, sig: await Sec.sign(s) } });
+    } catch {}
+    LS.del(HOST_PREFIX + code);
     setTimeout(renderHome, 300);
   }
 };
@@ -524,6 +779,12 @@ function playerOf(id) {
   return On.room.players.concat(On.room.waiting).find(x => x.id === id) || { id, name: "؟" };
 }
 function nameOf(id) { return playerOf(id).name; }
+function myRoleNow() {
+  const rd = On.room && On.room.round;
+  if (!rd) return null;
+  if (On.isHost) { const out = rd.outsiderId === myId; return { n: rd.n, out, word: out ? null : rd.word, emoji: out ? null : rd.emoji }; }
+  return On.myRole && On.myRole.n === rd.n ? On.myRole : null;
+}
 
 function renderOnline() {
   const r = On.room;
@@ -538,7 +799,7 @@ function renderOnline() {
   renderChat();
 
   // الدردشة لها رسم منفصل، فما نعيد رسم الشاشة بسبب رسالة جديدة
-  const sig = JSON.stringify([r.phase, [...On.online].sort(), [...Voice.members], On.ui, r.players, r.waiting, r.categories, r.round]);
+  const sig = JSON.stringify([r.phase, [...On.online].sort(), [...Voice.members], On.myRole, On.myVote, On.fp, On.ui, r.players, r.waiting, r.categories, r.round]);
   if (sig === On.lastSig) return;
   On.lastSig = sig;
 
@@ -553,7 +814,8 @@ function renderOnline() {
     Music.setMood(r.phase === "questions" || r.phase === "vote" ? "tense" : "calm");
   }
   const me = r.players.find(p => p.id === myId);
-  const isOut = rd && rd.outsiderId === myId;
+  const role = myRoleNow();
+  const isOut = !!(role && role.out);
 
   if (!me && r.phase !== "lobby") {
     setFloaters(["⏳", "🕵️", "🤫"]);
@@ -568,7 +830,7 @@ function renderOnline() {
     return;
   }
 
-  if (rd) preloadPoster(rd.cat, rd.word);
+  if (rd && role && role.word) preloadPoster(rd.cat, role.word);
   if (rd) setFloaters([CATEGORIES[rd.cat].icon, "❓", "🤔", "🕵️"]);
   else setFloaters(HOME_FLOATERS);
 
@@ -602,11 +864,16 @@ function bindLeave() {
 
 function catPillOnline(cat) { return `<div class="pill">${CATEGORIES[cat].icon} ${esc(cat)}</div>`; }
 
+function roleCardFor(isOut) {
+  const rd = On.room.round, role = myRoleNow();
+  if (!role) return `<div class="card status-big"><div class="big-emoji spin">⏳</div><p class="hint">جاري استلام دورك...</p></div>`;
+  return roleCardHtml(isOut, role.word, role.emoji, role.word ? posterFor(rd.cat, role.word) : "");
+}
 function peekHtml(isOut) {
   const rd = On.room.round;
   return `
     <button class="big ghost" id="peekBtn" data-quiet="1">${On.ui.peek ? "🙈 خبّ دوري" : "👁️ شوف دوري"}</button>
-    ${On.ui.peek ? roleCardHtml(isOut, rd.word, rd.emoji, posterFor(rd.cat, rd.word)) : ""}`;
+    ${On.ui.peek ? roleCardFor(isOut) : ""}`;
 }
 function bindPeek() {
   const b = document.getElementById("peekBtn");
@@ -654,6 +921,13 @@ function renderLobby(screen) {
           </li>`).join("")}
       </ul>
       ${r.players.length < 3 ? `<p class="hint">لازم 3 لاعبين على الأقل، ارسل الرابط للشباب 👆</p>` : ""}
+      ${H ? `<button class="big ghost" id="lockBtn">${r.locked ? "🔒 الغرفة مقفلة (اضغط عشان تفتحها)" : "🔓 الغرفة مفتوحة (اضغط عشان تقفلها)"}</button>`
+          : r.locked ? `<p class="hint">🔒 صاحب الغرفة قفل الغرفة</p>` : ""}
+      <div class="fp-box">
+        <div>🔐 بصمة الغرفة</div>
+        <div class="fp">${On.fp || "..."}</div>
+        <div class="hint" style="margin:4px 0 0">لازم تكون نفسها بالضبط عند كل اللاعبين. الغرفة مشفرة، والدردشة والأدوار ما يشوفها إلا اللي داخلها.</div>
+      </div>
       <p class="hint">اضغط على شخصيتك عشان تختار شكلها ✏️</p>
     </div>
     <div class="card">
@@ -666,6 +940,8 @@ function renderLobby(screen) {
       : `<div class="card center"><span class="spin">⏳</span> استنى صاحب الغرفة يبدأ</div>`}
     ${leaveBtnHtml()}`);
   document.getElementById("copyBtn").onclick = () => copyText(shareLink(r.code), "تم نسخ الرابط ✅");
+  const lb = document.getElementById("lockBtn");
+  if (lb) lb.onclick = () => { SFX.pop(); Host.toggleLock(); };
   const mine = screen.querySelector("[data-myav]");
   if (mine) mine.onclick = () => {
     SFX.pop();
@@ -703,7 +979,7 @@ function renderRolesOnline(screen, isOut) {
       </div>
       <button class="big" id="showBtn" data-quiet="1">اقلب الكرت 🃏</button>`;
   } else if (!ready) {
-    body = `${roleCardHtml(isOut, rd.word, rd.emoji, posterFor(rd.cat, rd.word))}
+    body = `${roleCardFor(isOut)}
       <button class="big" id="readyBtn" data-quiet="1">شفت دوري ✔️</button>`;
   } else {
     body = `${pendingHtml(rd.ready, "جاهزين")}${peekHtml(isOut)}`;
@@ -764,7 +1040,8 @@ function renderQuestionsOnline(screen, isOut) {
 /* ----- التصويت ----- */
 function renderVoteOnline(screen, isOut) {
   const r = On.room, rd = r.round, H = On.isHost;
-  const voted = rd.votes[myId];
+  // صوتك نعرفه من جهازك، لأن الأصوات ما تنرسل للكل قبل النتيجة
+  const voted = rd.votes[myId] ? (On.isHost ? rd.votes[myId] : (On.myVote && On.myVote.n === rd.n ? On.myVote.target : null)) : null;
   paintEl(screen, "vote-" + rd.n + (voted ? "v" : ""), voted
     ? `<div class="title">صوّتت على ${esc(nameOf(voted))} ✅</div>
        ${pendingHtml(rd.votes, "صوّتوا")}
@@ -778,6 +1055,7 @@ function renderVoteOnline(screen, isOut) {
   screen.querySelectorAll("[data-v]").forEach(b => b.onclick = () => {
     SFX.vote();
     screen.querySelectorAll("[data-v]").forEach(x => x.disabled = true);
+    On.myVote = { n: rd.n, target: b.dataset.v };
     sendAction({ type: "vote", target: b.dataset.v });
   });
   const sk = document.getElementById("skipBtn");
@@ -882,8 +1160,10 @@ function renderFinishOnline(screen) {
 
 /* ---------- البداية ---------- */
 (function init() {
-  const code = (new URLSearchParams(location.search).get("room") || "").replace(/\D/g, "").slice(0, 4);
-  if (code.length === 4) {
+  const code = (new URLSearchParams(location.search).get("room") || "").replace(/\D/g, "").slice(0, CODE_LEN);
+  const k = decodeURIComponent((location.hash.match(/k=([^&]+)/) || [])[1] || "");
+  if (code.length === CODE_LEN && validPub(k) && !SS.get(pinKey(code))) SS.set(pinKey(code), k);
+  if (code.length === CODE_LEN) {
     if (myName()) joinRoom(code); else renderNameForRoom(code);
   } else renderHome();
 })();
