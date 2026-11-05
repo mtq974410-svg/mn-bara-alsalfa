@@ -1,6 +1,8 @@
-/* ---------- اللعب أونلاين (غرف عبر Supabase Realtime) ----------
+/* ============================================================
+   اللعب أونلاين (غرف عبر Supabase Realtime)
    صاحب الغرفة (الهوست) يحتفظ بحالة اللعبة ويرسلها للكل،
-   وباقي اللاعبين يرسلون حركاتهم (دخول، تصويت، تخمين، دردشة) للهوست. */
+   وباقي اللاعبين يرسلون حركاتهم (دخول، تصويت، تخمين، دردشة) للهوست.
+   ============================================================ */
 
 // مفتاح publishable مصمم يكون ظاهر في كود المتصفح
 const SB_URL = "https://hhstlsdnqvuhxzmtmdtm.supabase.co";
@@ -22,44 +24,56 @@ const On = {
   sb: null, ch: null, code: null, isHost: false,
   room: null, online: new Set(),
   wasIn: false, joinTimer: null, timerId: null, lastJoinSent: 0,
-  lastSig: null, lastPhase: null, chatCount: 0,
-  ui: { shown: false, peek: false, resultShown: 0, finishShown: 0, timeUpFor: null }
+  lastSig: null, lastPhase: null,
+  ui: {}
 };
+function freshUi() { return { shown: false, peek: false, resultShown: 0, suspenseFor: 0, finishShown: 0, timeUpFor: null }; }
+On.ui = freshUi();
 
 function myName() { return cleanText(LS.get(NAME_KEY), 20); }
 function shareLink(code) { return location.origin + location.pathname + "?room=" + code; }
+function codeTiles(code) { return `<div class="room-code">${[...code].map((d, i) => `<span style="--i:${i}">${esc(d)}</span>`).join("")}</div>`; }
 
 /* ---------- الشاشة الرئيسية ---------- */
 function renderHome() {
   leaveChannel();
+  Music.setMood("calm");
   history.replaceState(null, "", location.pathname);
   setFloaters(HOME_FLOATERS);
   paint("home", `
-    <h1><span class="wiggle">🕵️</span> مين برا السالفة؟</h1>
-    <div class="card">
-      <h3>👤 اسمك</h3>
-      <input id="homeName" placeholder="اكتب اسمك" maxlength="20" value="${esc(myName())}">
+    <div class="hero">
+      <div class="logo-badge"><span class="logo-emoji">🕵️</span></div>
+      <h1 class="logo">مين برا<br><span>السالفة؟</span></h1>
+      <p class="tagline">لعبة الشك والضحك مع الشباب 🤫</p>
     </div>
     <div class="card">
-      <h3>🌐 العب أونلاين</h3>
-      <button class="big" id="createBtn" data-quiet="1">سوّي غرفة جديدة ➕</button>
-      <p class="muted center" style="margin:12px 0 6px">أو ادخل غرفة بالكود</p>
+      <div class="card-title">👤 اسمك</div>
+      <input id="homeName" placeholder="اكتب اسمك" maxlength="20" autocomplete="off" value="${esc(myName())}">
+    </div>
+    <div class="card">
+      <div class="card-title">🌐 العب أونلاين</div>
+      <button class="big" id="createBtn" data-quiet="1" style="margin-top:0">سوّي غرفة جديدة ➕</button>
+      <div class="divider">أو ادخل غرفة بالكود</div>
       <div class="row">
-        <input id="codeInput" placeholder="كود الغرفة" maxlength="4" inputmode="numeric" style="text-align:center;letter-spacing:6px">
+        <input id="codeInput" class="code-input" placeholder="0000" maxlength="4" inputmode="numeric" autocomplete="off">
         <button id="joinBtn" data-quiet="1">ادخل</button>
       </div>
     </div>
     <button class="big ghost" id="localBtn">📱 العب على جوال واحد</button>
-    <div class="card muted" style="margin-top:16px">
-      <b>📖 طريقة اللعب:</b> كل اللاعبين يعرفون السالفة (كلمة سرية) إلا واحد "برا السالفة".
-      تسألون بعض أسئلة عن السالفة بدون ما تفضحونها، وبعدها تصوّتون مين اللي برا السالفة.
-      وبرا السالفة يحاول يعرف السالفة من الأسئلة ويخمّنها بالنهاية.
-    </div>`);
+    <details class="card how" style="margin-top:14px">
+      <summary>📖 طريقة اللعب</summary>
+      <ol>
+        <li>كل اللاعبين يعرفون السالفة إلا واحد: "برا السالفة".</li>
+        <li>تسألون بعض أسئلة عن السالفة بدون ما تفضحونها.</li>
+        <li>تصوّتون مين تتوقعون إنه برا السالفة.</li>
+        <li>وبرا السالفة يحاول يخمّن السالفة بالنهاية.</li>
+      </ol>
+    </details>`);
   const nameEl = document.getElementById("homeName");
   const codeEl = document.getElementById("codeInput");
   const needName = () => {
     const n = cleanText(nameEl.value, 20);
-    if (!n) { shakeEl(nameEl); SFX.wrong(); nameEl.focus(); return null; }
+    if (!n) { shakeEl(nameEl); SFX.wrong(); nameEl.focus(); toast("اكتب اسمك أول ✍️"); return null; }
     LS.set(NAME_KEY, n);
     return n;
   };
@@ -70,6 +84,7 @@ function renderHome() {
     if (needName()) { SFX.select(); joinRoom(code); }
   };
   document.getElementById("joinBtn").onclick = join;
+  codeEl.oninput = () => { codeEl.value = codeEl.value.replace(/\D/g, "").slice(0, 4); };
   codeEl.onkeydown = e => { if (e.key === "Enter") join(); };
   document.getElementById("localBtn").onclick = renderSetup;
 }
@@ -78,17 +93,20 @@ function renderHome() {
 function renderNameForRoom(code) {
   setFloaters(HOME_FLOATERS);
   paint("name-" + code, `
-    <h1>🕵️ مين برا السالفة؟</h1>
+    <div class="hero">
+      <div class="logo-badge"><span class="logo-emoji">🕵️</span></div>
+      <h1 class="logo">مين برا<br><span>السالفة؟</span></h1>
+    </div>
     <div class="card center">
-      <p>عزموك على الغرفة</p>
-      <div class="room-code">${esc(code)}</div>
+      <div class="muted">عزموك على الغرفة 🎉</div>
+      ${codeTiles(code)}
     </div>
     <div class="card">
-      <h3>👤 اسمك</h3>
-      <input id="roomName" placeholder="اكتب اسمك" maxlength="20">
+      <div class="card-title">👤 اسمك</div>
+      <input id="roomName" placeholder="اكتب اسمك" maxlength="20" autocomplete="off">
     </div>
     <button class="big" id="goBtn" data-quiet="1">ادخل الغرفة 🚪</button>
-    <button class="big ghost" id="backBtn">⬅️ الرئيسية</button>`);
+    <button class="big ghost" id="backBtn">الرئيسية 🏠</button>`);
   const el = document.getElementById("roomName");
   const go = () => {
     const n = cleanText(el.value, 20);
@@ -124,8 +142,8 @@ function connect(code) {
   if (!window.supabase) { renderError("ما قدرنا نحمّل مكتبة الاتصال. تأكد من الإنترنت وجرب مرة ثانية."); return; }
   On.sb = On.sb || window.supabase.createClient(SB_URL, SB_KEY);
   On.code = code;
-  On.wasIn = false; On.lastSig = null; On.lastPhase = null; On.chatCount = 0;
-  On.ui = { shown: false, peek: false, resultShown: 0, suspenseFor: 0, finishShown: 0, timeUpFor: null };
+  On.wasIn = false; On.lastSig = null; On.lastPhase = null;
+  On.ui = freshUi();
   history.replaceState(null, "", "?room=" + code);
 
   const ch = On.sb.channel("bara:" + code, { config: { broadcast: { self: false }, presence: { key: myId } } });
@@ -148,14 +166,15 @@ function connect(code) {
   if (On.isHost) renderOnline();
   else {
     paint("connecting", `
-      <div class="card center" style="margin-top:80px">
-        <div class="big-emoji spin">⏳</div>
-        <h2>جاري الدخول للغرفة ${esc(code)}...</h2>
+      <div class="card status-big" style="margin-top:60px">
+        <div class="big-emoji spin">🌀</div>
+        <div class="title">جاري الدخول للغرفة</div>
+        ${codeTiles(code)}
       </div>
       <button class="big ghost" id="cancelBtn">إلغاء</button>`);
     document.getElementById("cancelBtn").onclick = renderHome;
     On.joinTimer = setTimeout(() => {
-      if (!On.room && ch === On.ch) { leaveChannel(); renderError(`ما لقينا الغرفة ${code} 😕<br><span class="muted">تأكد من الكود، أو إن صاحب الغرفة فاتح اللعبة.</span>`); }
+      if (!On.room && ch === On.ch) { leaveChannel(); renderError(`ما لقينا الغرفة ${esc(code)} 😕`, "تأكد من الكود، أو إن صاحب الغرفة فاتح اللعبة."); }
     }, 8000);
   }
 }
@@ -167,12 +186,13 @@ function leaveChannel() {
   clearInterval(On.timerId); On.timerId = null;
 }
 
-function renderError(msg) {
+function renderError(msg, sub = "") {
   history.replaceState(null, "", location.pathname);
   paint("error-" + Math.random(), `
-    <div class="card center" style="margin-top:60px">
-      <div class="big-emoji">🙈</div>
-      <h2>${msg}</h2>
+    <div class="card status-big" style="margin-top:60px">
+      <div class="big-emoji wiggle">🙈</div>
+      <div class="title">${msg}</div>
+      ${sub ? `<p class="hint">${esc(sub)}</p>` : ""}
     </div>
     <button class="big" id="homeBtn">الرئيسية 🏠</button>`);
   SFX.wrong();
@@ -327,12 +347,12 @@ function finishOnline(guess) {
   const right = guess === rd.word;
   const notes = [];
   r.players.forEach(p => {
-    if (p.id !== rd.outsiderId && rd.votes[p.id] === rd.outsiderId) { p.score += 1; notes.push(`${p.name} +1 (صوّت صح) ✅`); }
+    if (p.id !== rd.outsiderId && rd.votes[p.id] === rd.outsiderId) { p.score += 1; notes.push(`✅ ${p.name} +1 (صوّت صح)`); }
   });
   const out = r.players.find(p => p.id === rd.outsiderId);
   if (out) {
-    if (!rd.caught) { out.score += 2; notes.push(`${out.name} +2 (ما انكشف) 😎`); }
-    if (right) { out.score += 2; notes.push(`${out.name} +2 (عرف السالفة) 🧠`); }
+    if (!rd.caught) { out.score += 2; notes.push(`😎 ${out.name} +2 (ما انكشف)`); }
+    if (right) { out.score += 2; notes.push(`🧠 ${out.name} +2 (عرف السالفة)`); }
   }
   rd.notes = notes;
   r.phase = "finish";
@@ -377,7 +397,7 @@ function ensureLayout() {
       <div class="chat-head">💬 الدردشة</div>
       <div class="chat-list" id="chatList"></div>
       <div class="row">
-        <input id="chatInput" placeholder="اكتب سؤالك أو جوابك..." maxlength="200">
+        <input id="chatInput" placeholder="اكتب سؤالك أو جوابك..." maxlength="200" autocomplete="off">
         <button id="chatSend" data-quiet="1">إرسال</button>
       </div>
     </div>`;
@@ -400,21 +420,23 @@ function renderChat() {
   const sig = r.chat.length ? r.chat[r.chat.length - 1].t + ":" + r.chat.length : "0";
   if (list.dataset.sig === sig) return;
   const last = r.chat[r.chat.length - 1];
-  if (list.dataset.sig && last && last.id !== myId && last.id !== "sys") SFX.message();
+  if (list.dataset.sig && last) {
+    if (last.id === "sys") { if (last.text.includes("دخل")) SFX.join(); }
+    else if (last.id !== myId) SFX.message();
+  }
   list.dataset.sig = sig;
   list.innerHTML = r.chat.length
     ? r.chat.map(m => m.id === "sys"
         ? `<div class="msg sys">${esc(m.text)}</div>`
-        : `<div class="msg ${m.id === myId ? "mine" : ""}"><b>${esc(m.name)}:</b> ${esc(m.text)}</div>`).join("")
+        : `<div class="msg ${m.id === myId ? "mine" : ""}">${avatar(m.id, "sm")}<div class="bubble"><b>${esc(m.name)}</b>${esc(m.text)}</div></div>`).join("")
     : `<div class="msg sys">ما فيه رسائل للحين</div>`;
   list.scrollTop = list.scrollHeight;
 }
 
-function nameOf(id) {
-  const p = On.room.players.concat(On.room.waiting).find(x => x.id === id);
-  return p ? p.name : "؟";
+function playerOf(id) {
+  return On.room.players.concat(On.room.waiting).find(x => x.id === id) || { id, name: "؟" };
 }
-function dot(id) { return On.online.has(id) ? "🟢" : "⚪"; }
+function nameOf(id) { return playerOf(id).name; }
 
 function renderOnline() {
   const r = On.room;
@@ -423,7 +445,7 @@ function renderOnline() {
   renderChat();
 
   // الدردشة لها رسم منفصل، فما نعيد رسم الشاشة بسبب رسالة جديدة
-  const sig = JSON.stringify([r.phase, [...On.online].sort(), On.ui.shown, On.ui.peek, On.ui.resultShown, On.ui.finishShown, r.players, r.waiting, r.category, r.round && { ...r.round }]);
+  const sig = JSON.stringify([r.phase, [...On.online].sort(), On.ui, r.players, r.waiting, r.category, r.round]);
   if (sig === On.lastSig) return;
   On.lastSig = sig;
 
@@ -435,20 +457,20 @@ function renderOnline() {
     On.lastPhase = phaseKey;
     On.ui.peek = false;
     if (r.phase === "roles") On.ui.shown = false;
+    Music.setMood(r.phase === "questions" || r.phase === "vote" ? "tense" : "calm");
   }
   clearInterval(On.timerId); On.timerId = null;
 
   const me = r.players.find(p => p.id === myId);
   const isOut = rd && rd.outsiderId === myId;
-  const H = On.isHost;
 
   if (!me && r.phase !== "lobby") {
     setFloaters(["⏳", "🕵️", "🤫"]);
     paintEl(screen, "waiting", `
-      <div class="card center" style="margin-top:40px">
-        <div class="big-emoji bounce">⏳</div>
-        <h2>الجولة شغالة</h2>
-        <p>بتدخل معهم الجولة الجاية</p>
+      <div class="card status-big" style="margin-top:30px">
+        <div class="big-emoji float">⏳</div>
+        <div class="title">الجولة شغالة</div>
+        <p class="hint">بتدخل معهم الجولة الجاية</p>
       </div>
       ${leaveBtnHtml()}`);
     bindLeave();
@@ -471,10 +493,9 @@ function renderOnline() {
 
 function phaseSound(phase) {
   if (phase === "roles") SFX.start();
-  else if (phase === "questions") SFX.whoosh();
+  else if (phase === "questions" || phase === "guess") SFX.whoosh();
   else if (phase === "vote") SFX.vote();
-  else if (phase === "guess") SFX.whoosh();
-  else if (phase === "lobby") SFX.select();
+  else if (phase === "lobby") SFX.pop();
 }
 
 function leaveBtnHtml() { return `<button class="big ghost" id="leaveBtn">${On.isHost ? "🔒 اقفل الغرفة" : "🚪 اطلع من الغرفة"}</button>`; }
@@ -487,6 +508,8 @@ function bindLeave() {
   };
 }
 
+function catPillOnline(cat) { return `<div class="pill">${CATEGORIES[cat].icon} ${esc(cat)}</div>`; }
+
 function peekHtml(isOut) {
   const rd = On.room.round;
   return `
@@ -495,52 +518,53 @@ function peekHtml(isOut) {
 }
 function bindPeek() {
   const b = document.getElementById("peekBtn");
-  if (b) b.onclick = () => { On.ui.peek = !On.ui.peek; On.ui.peek ? SFX.reveal() : SFX.hide(); renderOnline(); };
+  if (b) b.onclick = () => { On.ui.peek = !On.ui.peek; On.ui.peek ? SFX.flip() : SFX.hide(); renderOnline(); };
 }
 
 function pendingHtml(doneMap, label) {
   const r = On.room;
   const done = r.players.filter(p => doneMap[p.id]).length;
-  const left = r.players.filter(p => !doneMap[p.id]);
   return `
     <div class="card center">
-      <div class="big-emoji bounce">⏳</div>
-      <h3>${label} ${done}/${r.players.length}</h3>
-      ${left.length ? `<p class="muted">ننتظر: ${left.map(p => esc(p.name)).join("، ")}</p>` : ""}
+      <div class="card-title" style="justify-content:center">${label} ${done}/${r.players.length}</div>
+      <div class="waitlist">
+        ${r.players.map(p => `<div class="wait-item ${doneMap[p.id] ? "done" : ""}">${avatar(p.id, "md")}<span>${esc(p.name)}</span></div>`).join("")}
+      </div>
     </div>`;
 }
 
 /* ----- اللوبي ----- */
 function renderLobby(screen) {
   const r = On.room, H = On.isHost;
-  const cats = [RANDOM, ...Object.keys(CATEGORIES)];
   const canShare = !!navigator.share;
   paintEl(screen, "lobby", `
-    <h2>🌐 الغرفة</h2>
     <div class="card center">
-      <div class="room-code">${esc(r.code)}</div>
-      <p class="muted">ارسل الرابط للشباب أو قول لهم الكود</p>
-      <div class="row" style="justify-content:center">
+      <div class="muted">كود الغرفة</div>
+      ${codeTiles(r.code)}
+      <div class="share-row">
         <button class="ghost" id="copyBtn">📋 انسخ الرابط</button>
         ${canShare ? `<button class="ghost" id="shareBtn">📤 شارك</button>` : ""}
       </div>
     </div>
     <div class="card">
-      <h3>👥 اللاعبين (${r.players.length})</h3>
-      <ul class="players stagger">
-        ${r.players.map((p, i) => `
-          <li style="--i:${i}">
-            <span>${dot(p.id)} ${p.id === r.hostId ? "👑 " : ""}${esc(p.name)}${p.id === myId ? " (أنت)" : ""}${p.score ? ` · ${Number(p.score) || 0} ⭐` : ""}</span>
-            ${H && p.id !== myId ? `<button data-kick="${esc(p.id)}" data-quiet="1">✕</button>` : ""}
+      <div class="card-title">👥 اللاعبين <span class="badge">${r.players.length}/${MAX_PLAYERS}</span></div>
+      <ul class="players">
+        ${r.players.map(p => `
+          <li>
+            <span class="status-dot ${On.online.has(p.id) ? "on" : ""}"></span>
+            ${avatar(p.id)}
+            <span class="pname">${esc(p.name)}</span>
+            ${p.id === r.hostId ? `<span class="tag">👑 صاحب الغرفة</span>` : ""}
+            ${p.id === myId ? `<span class="tag">أنت</span>` : ""}
+            ${p.score ? `<span class="pscore">${Number(p.score) || 0} ⭐</span>` : ""}
+            ${H && p.id !== myId ? `<button class="x-btn" data-kick="${esc(p.id)}" data-quiet="1" aria-label="طلّع">✕</button>` : ""}
           </li>`).join("")}
       </ul>
-      ${r.players.length < 3 ? `<p class="muted">لازم 3 لاعبين على الأقل</p>` : ""}
+      ${r.players.length < 3 ? `<p class="hint">لازم 3 لاعبين على الأقل، ارسل الرابط للشباب 👆</p>` : ""}
     </div>
     <div class="card">
-      <h3>📂 التصنيف</h3>
-      ${H
-        ? `<div class="chips">${cats.map(c => `<button class="chip ${c === r.category ? "active" : ""}" data-cat="${esc(c)}" data-quiet="1">${catIcon(c)} ${esc(c)}</button>`).join("")}</div>`
-        : `<p>${catIcon(r.category)} ${esc(r.category)}</p>`}
+      <div class="card-title">📂 التصنيف</div>
+      ${H ? chipsHtml(r.category) : `<div class="chips"><span class="chip active">${catIcon(r.category)} ${esc(r.category)}</span></div>`}
     </div>
     ${H
       ? `<button class="big" id="startBtn" ${r.players.length < 3 ? "disabled" : ""}>ابدأ الجولة 🎲</button>
@@ -567,11 +591,12 @@ function renderRolesOnline(screen, isOut) {
   let body;
   if (!On.ui.shown && !ready) {
     body = `
-      <div class="card center">
-        <div class="big-emoji bounce">🤫</div>
-        <h3>تأكد ما أحد يشوف شاشتك 👀</h3>
+      <div class="card pass">
+        ${avatar(myId, "xl")}
+        <div class="pass-name">دورك جاهز</div>
+        <div class="hint">تأكد ما أحد يشوف شاشتك 👀</div>
       </div>
-      <button class="big" id="showBtn" data-quiet="1">اضغط وشوف دورك 🔍</button>`;
+      <button class="big" id="showBtn" data-quiet="1">اقلب الكرت 🃏</button>`;
   } else if (!ready) {
     body = `${roleCardHtml(isOut, rd.word, rd.emoji)}
       <button class="big" id="readyBtn" data-quiet="1">شفت دوري ✔️</button>`;
@@ -579,7 +604,7 @@ function renderRolesOnline(screen, isOut) {
     body = `${pendingHtml(rd.ready, "جاهزين")}${peekHtml(isOut)}`;
   }
   paintEl(screen, "roles-" + rd.n + (ready ? "r" : On.ui.shown ? "s" : ""), `
-    <h2>${CATEGORIES[rd.cat].icon} التصنيف: ${esc(rd.cat)}</h2>
+    ${catPillOnline(rd.cat)}
     ${body}
     ${H && ready ? `<button class="big ghost" id="skipBtn">كمّل بدون الباقين ⏭️</button>` : ""}`);
   const s = document.getElementById("showBtn");
@@ -594,36 +619,30 @@ function renderRolesOnline(screen, isOut) {
 /* ----- الأسئلة ----- */
 function renderQuestionsOnline(screen, isOut) {
   const rd = On.room.round, H = On.isHost;
+  const total = QUESTION_MS / 1000;
   paintEl(screen, "questions-" + rd.n + "." + rd.q, `
-    <h2><span class="wiggle">❓</span> وقت الأسئلة</h2>
-    <p class="center muted">${CATEGORIES[rd.cat].icon} التصنيف: ${esc(rd.cat)}، كل واحد يسأل اللي بعده سؤال عن السالفة (بالدردشة أو بالصوت)</p>
-    <div class="card stagger">
-      ${rd.pairs.map(([a, b], i) => `<div class="pair" style="--i:${i}">🗣️ <b>${esc(nameOf(a))}</b> يسأل <b>${esc(nameOf(b))}</b></div>`).join("")}
-    </div>
-    <div class="card"><div class="timer" id="timer">⏳</div></div>
+    <div class="title"><span class="wiggle">❓</span> وقت الأسئلة</div>
+    ${catPillOnline(rd.cat)}
+    ${timerHtml()}
+    <p class="hint" style="margin:0 0 12px">كل واحد يسأل اللي بعده سؤال عن السالفة، بالدردشة أو بالصوت</p>
+    ${pairsHtml(rd.pairs, nameOf)}
     ${peekHtml(isOut)}
     ${H
       ? `<button class="big ghost" id="reshuffle">أسئلة جولة ثانية 🔄</button>
          <button class="big" id="voteBtn">يلا نصوّت 🗳️</button>`
-      : `<p class="center muted">صاحب الغرفة يبدأ التصويت لما تخلصون</p>`}`);
-  const tick = () => {
-    const el = document.getElementById("timer");
-    if (!el) return;
+      : `<p class="hint">صاحب الغرفة يبدأ التصويت لما تخلصون</p>`}`);
+  const tick = first => {
     const s = Math.ceil((rd.endsAt - Date.now()) / 1000);
-    if (s > 0) {
-      el.textContent = `⏳ ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-      el.classList.toggle("hurry", s <= 10);
-      if (s <= 10) SFX.tick();
-    } else {
-      el.textContent = "انتهى الوقت ⏰";
-      el.classList.remove("hurry");
+    if (!updateTimer(s, total)) return;
+    if (s > 0) { if (!first && s <= 10) { SFX.tick(); if (s <= 5) SFX.heartbeat(); } }
+    else {
       const key = rd.n + "." + rd.q;
-      if (On.ui.timeUpFor !== key) { On.ui.timeUpFor = key; shakeEl(el); SFX.timeUp(); vibrate(400); }
+      if (On.ui.timeUpFor !== key) { On.ui.timeUpFor = key; SFX.timeUp(); }
       clearInterval(On.timerId); On.timerId = null;
     }
   };
-  tick();
-  On.timerId = setInterval(tick, 1000);
+  tick(true);
+  On.timerId = setInterval(() => tick(false), 1000);
   if (H) {
     document.getElementById("reshuffle").onclick = Host.reshuffle;
     document.getElementById("voteBtn").onclick = Host.toVote;
@@ -636,13 +655,13 @@ function renderVoteOnline(screen, isOut) {
   const r = On.room, rd = r.round, H = On.isHost;
   const voted = rd.votes[myId];
   paintEl(screen, "vote-" + rd.n + (voted ? "v" : ""), voted
-    ? `<h2>🗳️ صوّت على ${esc(nameOf(voted))} ✅</h2>
+    ? `<div class="title">صوّتت على ${esc(nameOf(voted))} ✅</div>
        ${pendingHtml(rd.votes, "صوّتوا")}
        ${H ? `<button class="big ghost" id="skipBtn">اعرض النتيجة بدون الباقين ⏭️</button>` : ""}`
-    : `<h2>مين تتوقع برا السالفة؟ 🕵️</h2>
-       <p class="center muted">صوتك سري 🤐</p>
+    : `<div class="title">مين برا السالفة؟ 🕵️</div>
+       <p class="hint" style="margin:-6px 0 14px">صوتك سري 🤐</p>
        <div class="grid stagger">
-         ${r.players.filter(p => p.id !== myId).map((p, i) => `<button data-v="${esc(p.id)}" data-quiet="1" style="--i:${i}">👤 ${esc(p.name)}</button>`).join("")}
+         ${r.players.filter(p => p.id !== myId).map((p, i) => `<button class="pick" data-v="${esc(p.id)}" data-quiet="1" style="--i:${i}">${avatar(p.id)}<span>${esc(p.name)}</span></button>`).join("")}
        </div>
        ${peekHtml(isOut)}`);
   screen.querySelectorAll("[data-v]").forEach(b => b.onclick = () => {
@@ -663,27 +682,30 @@ function renderResultOnline(screen) {
       On.ui.suspenseFor = rd.n;
       paintEl(screen, "suspense-" + rd.n, suspenseHtml());
       SFX.drumroll();
+      Music.duck(3.5);
       const n = rd.n;
       setTimeout(() => { if (On.room && On.room.round && On.room.round.n === n) { On.ui.resultShown = n; showResultFx(); renderOnline(); } }, 2300);
     }
     return;
   }
-  const out = nameOf(rd.outsiderId);
+  const out = playerOf(rd.outsiderId);
   const iAmOut = rd.outsiderId === myId;
   paintEl(screen, "result-" + rd.n, `
-    <h2>📊 نتيجة التصويت</h2>
-    <div class="card">${voteBarsHtml(r.players, rd.counts || {}, rd.outsiderId, p => p.id)}</div>
     ${outsiderBoxHtml(rd.caught, out)}
+    <div class="card">
+      <div class="card-title">📊 الأصوات</div>
+      ${voteBarsHtml(r.players, rd.counts || {}, rd.outsiderId, p => p.id)}
+    </div>
     ${H
-      ? `<button class="big" id="guessBtn">خلّ ${esc(out)} يخمّن السالفة 🤔</button>`
-      : iAmOut ? `<p class="center">جهّز نفسك، بتخمّن السالفة 🤔</p>` : `<p class="center muted">بعدها ${esc(out)} بيخمّن السالفة</p>`}`);
+      ? `<button class="big" id="guessBtn">خلّ ${esc(out.name)} يخمّن السالفة 🤔</button>`
+      : `<p class="hint">${iAmOut ? "جهّز نفسك، بتخمّن السالفة 🤔" : `بعدها ${esc(out.name)} بيخمّن السالفة`}</p>`}`);
   const g = document.getElementById("guessBtn");
   if (g) g.onclick = Host.toGuess;
 }
 function showResultFx() {
   const rd = On.room.round;
   if (rd.caught) { SFX.caught(); confetti(); vibrate([80, 40, 80, 40, 200]); }
-  else { SFX.escaped(); confetti(30, ["😎", "🏃‍♂️", "💨"]); }
+  else { SFX.escaped(); confetti(50, ["😎", "💨", "🏃‍♂️"]); }
 }
 
 /* ----- التخمين ----- */
@@ -691,19 +713,18 @@ function renderGuessOnline(screen, isOut) {
   const rd = On.room.round;
   if (!isOut) {
     paintEl(screen, "guess-wait-" + rd.n, `
-      <div class="card center" style="margin-top:40px">
-        <div class="big-emoji bounce">🤔</div>
-        <h2>${esc(nameOf(rd.outsiderId))} يخمّن السالفة...</h2>
-        <p class="muted">${CATEGORIES[rd.cat].icon} ${esc(rd.cat)}</p>
-      </div>`);
+      <div class="card status-big" style="margin-top:20px">
+        ${avatar(rd.outsiderId, "xl")}
+        <div class="title" style="margin-top:12px">${esc(nameOf(rd.outsiderId))} يخمّن السالفة</div>
+        <div class="dots"><span></span><span></span><span></span></div>
+      </div>
+      ${catPillOnline(rd.cat)}`);
     return;
   }
   paintEl(screen, "guess-" + rd.n, `
-    <h2>وش السالفة؟ 🤔</h2>
-    <p class="center muted">${CATEGORIES[rd.cat].icon} التصنيف: ${esc(rd.cat)}</p>
-    <div class="grid stagger">
-      ${rd.options.map(([w, e], i) => `<button data-g="${i}" data-quiet="1" style="--i:${i}">${esc(e)} ${esc(w)}</button>`).join("")}
-    </div>`);
+    <div class="title">وش السالفة؟ 🤔</div>
+    ${catPillOnline(rd.cat)}
+    ${optionsHtml(rd.options)}`);
   const buttons = screen.querySelectorAll("[data-g]");
   buttons.forEach(b => b.onclick = () => {
     buttons.forEach(x => x.disabled = true);
@@ -716,34 +737,31 @@ function renderGuessOnline(screen, isOut) {
 function renderFinishOnline(screen) {
   const r = On.room, rd = r.round, H = On.isHost;
   const right = rd.guess === rd.word;
-  if (On.ui.finishShown !== rd.n) {
-    On.ui.finishShown = rd.n;
-    if (right) { SFX.correct(); confetti(40, [String(rd.emoji), "✨"]); } else { SFX.wrong(); vibrate(300); }
-  }
+  const firstTime = On.ui.finishShown !== rd.n;
+  On.ui.finishShown = rd.n;
   const guessed = rd.guess ? (CATEGORIES[rd.cat].words.find(w => w[0] === rd.guess) || [rd.guess, "❔"]) : null;
   paintEl(screen, "finish-" + rd.n, `
-    <h2 class="${right ? "pop" : "shake"}">${right ? "عرفها! 🔥" : "ما عرفها ❌"}</h2>
-    ${guessed ? `<p class="center">${esc(nameOf(rd.outsiderId))} خمّن: ${esc(guessed[1])} ${esc(guessed[0])}</p>` : ""}
-    <div class="role-box role-word pop">
-      <div style="font-size:1rem;font-weight:400">السالفة كانت</div>
-      <div class="big-emoji bounce">${esc(rd.emoji)}</div>
-      <div>${esc(rd.word)}</div>
+    <div class="title ${right ? "pop" : "shake"}">${right ? "عرفها! 🔥" : "ما عرفها ❌"}</div>
+    ${guessed ? `<p class="hint" style="margin:-6px 0 12px">${esc(nameOf(rd.outsiderId))} خمّن: ${esc(guessed[1])} ${esc(guessed[0])}</p>` : ""}
+    ${wordRevealHtml(rd.word, rd.emoji)}
+    <div class="card">
+      <div class="card-title">🏆 الترتيب</div>
+      ${rankingHtml(r.players)}
     </div>
     <div class="card">
-      <h3>✨ نقاط الجولة</h3>
-      <div class="stagger">
-        ${rd.notes.length ? rd.notes.map((n, i) => `<div class="muted" style="--i:${i}">• ${esc(n)}</div>`).join("") : `<div class="muted">ما أحد أخذ نقاط 🤷</div>`}
-      </div>
-    </div>
-    <div class="card">
-      <h3>🏆 الترتيب</h3>
-      <div class="stagger">${rankingHtml(r.players)}</div>
+      <div class="card-title">✨ نقاط الجولة</div>
+      ${notesHtml(rd.notes)}
     </div>
     ${H
       ? `<button class="big" id="againBtn">جولة جديدة 🎲</button>
          <button class="big ghost" id="lobbyBtn">رجوع للغرفة 🏠</button>`
       : `<div class="card center"><span class="spin">⏳</span> استنى صاحب الغرفة</div>`}
     ${leaveBtnHtml()}`);
+  if (firstTime) {
+    if (right) { SFX.correct(); confetti(80, [String(rd.emoji), "✨"]); } else { SFX.wrong(); vibrate(300); setTimeout(SFX.win, 700); }
+    playCoins(rd.notes.length);
+    setTimeout(() => burstFrom(screen.querySelector(".p1 .av"), 50, ["👑", "⭐"]), 1000);
+  }
   if (H) {
     document.getElementById("againBtn").onclick = hostStart;
     document.getElementById("lobbyBtn").onclick = Host.lobby;
