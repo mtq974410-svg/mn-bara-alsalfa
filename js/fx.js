@@ -239,6 +239,7 @@ const Music = {
   LEVEL: 0.5,
   start() {
     if (!this.on || this.timer) return;
+    if (typeof Voice !== "undefined" && Voice.on) return;   // الموسيقى ساكتة وقت المكالمة
     let c = null;
     try { c = AudioEngine.init(); } catch (e) { console.warn("audio", e); }
     if (!c) return;
@@ -398,7 +399,7 @@ function setAvLooks(players) {
 }
 function lookFor(key) { return decodeLook(AV_LOOKS.get(key)) || randomLook(key); }
 // صورة اللاعب: شخصية كرتونية مضحكة (من js/chars.js)
-function avatar(key, size = "") { return lookAvatar(lookFor(key), size); }
+function avatar(key, size = "") { return lookAvatar(lookFor(key), size).replace('<span class="av', `<span data-k="${esc(key)}" class="av`); }
 // زر يفتح شاشة "شخصيتك"
 function avatarBtn(key, attr) {
   return `<button class="av-btn" ${attr} data-quiet="1" aria-label="غيّر الشخصية">${avatar(key)}<span class="av-swap">✏️</span></button>`;
