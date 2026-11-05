@@ -381,7 +381,7 @@ function pkey(p) { return p.id || p.name; }
 
 /* ----- بوسترات الأفلام والمسلسلات (من TMDB) ----- */
 const POSTER_BASE = "https://image.tmdb.org/t/p/w342";
-const TMDB_NOTE = `<p class="tmdb-note"><span class="tmdb-credit" style="position:static">TMDB</span>This product uses the TMDB API but is not endorsed or certified by TMDB. صور الأفلام والمسلسلات من <a href="https://www.themoviedb.org/" target="_blank" rel="noopener" style="color:inherit">themoviedb.org</a></p>`;
+const TMDB_NOTE = `<p class="tmdb-note"><span class="tmdb-credit" style="position:static">TMDB</span>This product uses the TMDB API but is not endorsed or certified by TMDB. صور الأفلام والمسلسلات والكرتون من <a href="https://www.themoviedb.org/" target="_blank" rel="noopener" style="color:inherit">themoviedb.org</a></p>`;
 // نجيب البوستر من بيانات الكلمات نفسها، مو من رسائل الغرفة
 function posterFor(cat, word) {
   const w = CATEGORIES[cat] && CATEGORIES[cat].words.find(x => x[0] === word);
