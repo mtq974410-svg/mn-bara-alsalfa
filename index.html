@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مين برا السالفة؟</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; overflow-x: hidden;
+    font-family: 'Cairo', Tahoma, sans-serif;
+    background: linear-gradient(160deg, #2b1055, #7597de);
+    background-attachment: fixed;
+    color: #fff; display: flex; justify-content: center;
+  }
+  #bg { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+  #bg span { position: absolute; bottom: -80px; opacity: .14; animation: floatUp linear infinite; }
+  #app { position: relative; z-index: 1; width: 100%; max-width: 480px; padding: 20px; }
+  #muteBtn {
+    position: fixed; top: 12px; left: 12px; z-index: 60;
+    width: 48px; height: 48px; padding: 0; border-radius: 50%;
+    font-size: 1.4rem; background: rgba(255,255,255,0.2); color: #fff;
+  }
+  h1 { text-align: center; font-weight: 900; font-size: 2.2rem; margin: 10px 0 20px; }
+  h2 { text-align: center; margin: 10px 0; }
+  .card {
+    background: rgba(255,255,255,0.12); border-radius: 18px;
+    padding: 18px; margin-bottom: 16px; backdrop-filter: blur(6px);
+  }
+  .row { display: flex; gap: 8px; }
+  input {
+    flex: 1; padding: 12px; border-radius: 12px; border: none;
+    font-family: inherit; font-size: 1rem;
+  }
+  button {
+    font-family: inherit; font-size: 1.05rem; font-weight: 700;
+    border: none; border-radius: 12px; padding: 12px 16px; cursor: pointer;
+    background: #ffcc00; color: #2b1055; transition: transform .1s, background .2s;
+  }
+  button:active { transform: scale(0.94); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .big { width: 100%; padding: 16px; font-size: 1.25rem; margin-top: 8px; }
+  .ghost { background: rgba(255,255,255,0.2); color: #fff; }
+  .players { list-style: none; padding: 0; margin: 12px 0 0; }
+  .players li {
+    display: flex; justify-content: space-between; align-items: center;
+    background: rgba(255,255,255,0.15); padding: 8px 12px;
+    border-radius: 10px; margin-bottom: 6px;
+  }
+  .players li.new { animation: slideIn .4s cubic-bezier(.2,1.4,.4,1) both; }
+  .players li button { padding: 4px 10px; background: #ff5e78; color: #fff; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { background: rgba(255,255,255,0.2); color: #fff; padding: 8px 14px; font-size: .95rem; }
+  .chip.active { background: #ffcc00; color: #2b1055; transform: scale(1.06); }
+  .center { text-align: center; }
+  .role-box {
+    text-align: center; padding: 30px 10px; border-radius: 18px;
+    font-size: 1.8rem; font-weight: 900; margin: 16px 0;
+  }
+  .role-word { background: #3ddc97; color: #10302a; }
+  .role-out { background: #ff5e78; }
+  .big-emoji { font-size: 5rem; line-height: 1.2; display: inline-block; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid button { background: rgba(255,255,255,0.92); }
+  .grid button.right { background: #3ddc97; }
+  .grid button.wrong { background: #ff5e78; color: #fff; }
+  .pair { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.2); font-size: 1.1rem; }
+  .pair:last-child { border-bottom: none; }
+  .muted { opacity: .8; font-size: .95rem; }
+  .score-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
+  .vote-row { padding: 6px 0; }
+  .bar-wrap { background: rgba(255,255,255,0.15); border-radius: 6px; height: 10px; margin-top: 4px; overflow: hidden; }
+  .bar { height: 100%; border-radius: 6px; background: #ffcc00; width: var(--w); animation: grow 1s ease-out both; }
+  .timer { font-size: 2.5rem; font-weight: 900; text-align: center; }
+  .timer.hurry { color: #ffd1d9; animation: pulse .5s ease-in-out infinite alternate; }
+
+  /* ----- الأنيميشن ----- */
+  .enter { animation: screenIn .45s cubic-bezier(.2,.9,.3,1.2) both; }
+  .flip { animation: flip .6s ease both; }
+  .pop { animation: pop .55s cubic-bezier(.2,1.6,.4,1) both; }
+  .bounce { animation: bounce 1.2s ease-in-out infinite; }
+  .wiggle { display: inline-block; animation: wiggle 2s ease-in-out infinite; }
+  .shake { animation: shake .5s; }
+  .glow-red { animation: flip .6s ease both, glowRed 1.4s ease-in-out .6s infinite; }
+  .glow-green { animation: pop .55s cubic-bezier(.2,1.6,.4,1) both, glowGreen 1.4s ease-in-out .6s infinite; }
+  .stagger > * { animation: slideIn .45s cubic-bezier(.2,1.2,.4,1) both; animation-delay: calc(var(--i, 0) * 90ms); }
+  .spin { display: inline-block; animation: spin 1s linear infinite; }
+
+  .confetti { position: fixed; top: -40px; z-index: 50; pointer-events: none; font-size: 26px; animation: fall linear forwards; }
+  .confetti.piece { width: 10px; height: 14px; border-radius: 2px; }
+
+  @keyframes screenIn { from { opacity: 0; transform: translateY(24px) scale(.97); } to { opacity: 1; transform: none; } }
+  @keyframes flip { from { opacity: 0; transform: perspective(700px) rotateY(90deg); } to { opacity: 1; transform: perspective(700px) rotateY(0); } }
+  @keyframes pop { from { opacity: 0; transform: scale(.3); } to { opacity: 1; transform: scale(1); } }
+  @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-14px); } }
+  @keyframes wiggle { 0%,100% { transform: rotate(0); } 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
+  @keyframes shake { 0%,100% { transform: translateX(0); } 20%,60% { transform: translateX(-10px); } 40%,80% { transform: translateX(10px); } }
+  @keyframes glowRed { 0%,100% { box-shadow: 0 0 0 rgba(255,94,120,0); } 50% { box-shadow: 0 0 35px rgba(255,94,120,.9); } }
+  @keyframes glowGreen { 0%,100% { box-shadow: 0 0 0 rgba(61,220,151,0); } 50% { box-shadow: 0 0 35px rgba(61,220,151,.9); } }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(-40px); } to { opacity: 1; transform: none; } }
+  @keyframes pulse { to { transform: scale(1.15); } }
+  @keyframes grow { from { width: 0; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes floatUp { to { transform: translateY(-125vh) rotate(360deg); } }
+  @keyframes fall { to { transform: translate(var(--drift), 110vh) rotate(var(--rot)); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .confetti, #bg { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="bg"></div>
+<button id="muteBtn" data-quiet="1" aria-label="الصوت">🔊</button>
+<div id="app"></div>
+
+<script>
+/* ---------- الكلمات مع الإيموجي ---------- */
+const CATEGORIES = {
+  "أكلات": { icon: "🍽️", words: [["كبسة","🍛"],["منسف","🍖"],["شاورما","🌯"],["فلافل","🧆"],["مندي","🍗"],["برجر","🍔"],["بيتزا","🍕"],["سمبوسة","🥟"],["ملوخية","🥬"],["مقلوبة","🍲"],["كنافة","🧀"],["حمص","🫘"],["تبولة","🥗"],["مكرونة","🍝"],["سوشي","🍣"],["جريش","🌾"],["مطبق","🫓"],["لقيمات","🍩"],["محشي","🫑"],["فتة","🥘"]] },
+  "حيوانات": { icon: "🐾", words: [["جمل","🐪"],["أسد","🦁"],["فيل","🐘"],["زرافة","🦒"],["قطة","🐱"],["كلب","🐶"],["حصان","🐴"],["تمساح","🐊"],["دلفين","🐬"],["نسر","🦅"],["بطريق","🐧"],["قرد","🐒"],["ثعلب","🦊"],["أرنب","🐰"],["سلحفاة","🐢"],["ببغاء","🦜"],["حوت","🐋"],["نمر","🐯"],["غزال","🦌"],["خروف","🐑"]] },
+  "دول": { icon: "🌍", words: [["السعودية","🇸🇦"],["مصر","🇪🇬"],["الأردن","🇯🇴"],["الكويت","🇰🇼"],["الإمارات","🇦🇪"],["قطر","🇶🇦"],["المغرب","🇲🇦"],["تركيا","🇹🇷"],["اليابان","🇯🇵"],["البرازيل","🇧🇷"],["فرنسا","🇫🇷"],["إيطاليا","🇮🇹"],["الهند","🇮🇳"],["أمريكا","🇺🇸"],["كندا","🇨🇦"],["الصين","🇨🇳"],["روسيا","🇷🇺"],["أستراليا","🇦🇺"],["ألمانيا","🇩🇪"],["إسبانيا","🇪🇸"]] },
+  "أماكن": { icon: "📍", words: [["مطار","🛫"],["مستشفى","🏥"],["مدرسة","🏫"],["مطعم","🍽️"],["سينما","🎬"],["ملعب","🏟️"],["بحر","🌊"],["صحراء","🏜️"],["مول","🛍️"],["مسجد","🕌"],["جامعة","🎓"],["فندق","🏨"],["حديقة حيوان","🦓"],["محطة بنزين","⛽"],["صالون حلاقة","💈"],["مكتبة","📚"],["سجن","🔒"],["بنك","🏦"],["نادي رياضي","🏋️"],["سوق خضار","🥕"]] },
+  "مهن": { icon: "💼", words: [["طبيب","👨‍⚕️"],["مهندس","👷"],["معلم","👨‍🏫"],["طيار","👨‍✈️"],["طباخ","👨‍🍳"],["شرطي","👮"],["نجار","🪚"],["محامي","⚖️"],["ممرض","💉"],["رسام","🎨"],["مصور","📸"],["سائق تاكسي","🚕"],["حلاق","✂️"],["مزارع","👨‍🌾"],["صحفي","📰"],["مبرمج","👨‍💻"],["رائد فضاء","👨‍🚀"],["إطفائي","🧑‍🚒"],["خياط","🧵"],["يوتيوبر","📹"]] },
+  "أغراض البيت": { icon: "🏠", words: [["ثلاجة","🧊"],["غسالة","🧺"],["مكنسة","🧹"],["تلفزيون","📺"],["كنبة","🛋️"],["سرير","🛏️"],["مكيف","❄️"],["فرن","🔥"],["مروحة","🌀"],["مرآة","🪞"],["ستارة","🪟"],["سجادة","🧶"],["مخدة","💤"],["دولاب","🚪"],["إبريق","🫖"],["خلاط","🥤"],["مكواة","👔"],["ساعة حائط","🕰️"],["مصباح","💡"],["طاولة","🪑"]] },
+  "رياضات": { icon: "🏅", words: [["كرة قدم","⚽"],["كرة سلة","🏀"],["سباحة","🏊"],["تنس","🎾"],["ملاكمة","🥊"],["جري","🏃"],["كاراتيه","🥋"],["تزلج","⛷️"],["غوص","🤿"],["ركوب خيل","🏇"],["بولينج","🎳"],["جولف","⛳"],["كرة طائرة","🏐"],["بلياردو","🎱"],["رماية","🎯"],["دراجات","🚴"],["شطرنج","♟️"],["تسلق","🧗"],["بادل","🏓"],["مصارعة","🤼"]] },
+  "مواصلات": { icon: "🚗", words: [["طيارة","✈️"],["سفينة","🚢"],["قطار","🚆"],["تاكسي","🚕"],["باص","🚌"],["دراجة نارية","🏍️"],["سيكل","🚲"],["هليكوبتر","🚁"],["مترو","🚇"],["قارب","⛵"],["تلفريك","🚡"],["شاحنة","🚚"],["سيارة إسعاف","🚑"],["غواصة","🌊"],["منطاد","🎈"],["صاروخ","🚀"],["سكوتر","🛴"],["عربة خيل","🐎"],["يخت","🛥️"],["تراكتور","🚜"]] }
+};
+const RANDOM = "عشوائي";
+const RANDOM_ICON = "🎲";
+const STORE_KEY = "bara_salfa_players";
+const SOUND_KEY = "bara_salfa_sound";
+
+/* ---------- محرك الصوت (Web Audio، بدون ملفات) ---------- */
+const Sound = {
+  ctx: null,
+  on: (() => { try { return localStorage.getItem(SOUND_KEY) !== "off"; } catch { return true; } })(),
+  get() {
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      this.ctx = new AC();
+    }
+    if (this.ctx.state === "suspended") this.ctx.resume();
+    return this.ctx;
+  },
+  tone(freq, dur, o = {}) {
+    if (!this.on) return;
+    const c = this.get(); if (!c) return;
+    const { type = "sine", vol = 0.18, delay = 0, slide = 0 } = o;
+    const t = c.currentTime + delay;
+    const osc = c.createOscillator(), g = c.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(40, freq + slide), t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g); g.connect(c.destination);
+    osc.start(t); osc.stop(t + dur + 0.05);
+  },
+  noise(dur, o = {}) {
+    if (!this.on) return;
+    const c = this.get(); if (!c) return;
+    const { vol = 0.15, delay = 0, freq = 1000, q = 1, type = "bandpass" } = o;
+    const t = c.currentTime + delay;
+    const len = Math.max(1, Math.floor(c.sampleRate * dur));
+    const buf = c.createBuffer(1, len, c.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    const src = c.createBufferSource(); src.buffer = buf;
+    const f = c.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const g = c.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(c.destination);
+    src.start(t); src.stop(t + dur + 0.02);
+  }
+};
+const notes = (seq, o = {}) => seq.forEach(([f, d, delay]) => Sound.tone(f, d, { ...o, delay }));
+const SFX = {
+  click:    () => Sound.tone(520, 0.07, { type: "triangle", vol: 0.1 }),
+  add:      () => notes([[523, .12, 0], [784, .18, .08]], { type: "triangle" }),
+  remove:   () => Sound.tone(420, 0.18, { type: "square", vol: 0.06, slide: -250 }),
+  select:   () => Sound.tone(880, 0.1, { type: "triangle", vol: 0.12, slide: 300 }),
+  start:    () => notes([[523, .15, 0], [659, .15, .1], [784, .15, .2], [1047, .35, .3]], { type: "triangle", vol: .16 }),
+  whoosh:   () => Sound.noise(0.35, { freq: 1200, q: 0.7, vol: 0.12 }),
+  reveal:   () => { SFX.whoosh(); notes([[880, .25, .15], [1320, .45, .25]], { vol: .12 }); },
+  outsider: () => { SFX.whoosh(); notes([[196, .5, .1], [185, .5, .45], [147, .9, .8]], { type: "sawtooth", vol: .08 }); },
+  hide:     () => Sound.tone(700, 0.15, { type: "sine", vol: 0.1, slide: -400 }),
+  tick:     () => Sound.tone(1100, 0.05, { type: "square", vol: 0.05 }),
+  timeUp:   () => notes([[880, .2, 0], [880, .2, .3], [880, .5, .6]], { type: "square", vol: .1 }),
+  vote:     () => notes([[660, .08, 0], [990, .15, .07]], { type: "triangle", vol: .14 }),
+  drumroll: () => {
+    for (let i = 0; i < 26; i++) Sound.noise(0.06, { delay: i * 0.08, freq: 250 + i * 8, q: 1.5, vol: 0.05 + i * 0.007 });
+    Sound.noise(1.2, { delay: 2.1, freq: 7000, type: "highpass", vol: 0.18 });
+    Sound.tone(110, 0.4, { delay: 2.1, vol: 0.25 });
+  },
+  caught:   () => notes([[523, .15, 0], [659, .15, .12], [784, .15, .24], [1047, .2, .36], [784, .12, .56], [1047, .6, .68]], { type: "triangle", vol: .16 }),
+  escaped:  () => notes([[392, .3, 0], [370, .3, .3], [349, .3, .6], [330, .8, .9]], { type: "sawtooth", vol: .07 }),
+  correct:  () => notes([[784, .1, 0], [988, .1, .08], [1175, .1, .16], [1568, .45, .24]], { vol: .15 }),
+  wrong:    () => Sound.tone(140, 0.6, { type: "sawtooth", vol: 0.12, slide: -40 })
+};
+function vibrate(p) { try { navigator.vibrate && navigator.vibrate(p); } catch {} }
+
+/* ---------- تأثيرات بصرية ---------- */
+function confetti(n = 70, emojis = ["🎉", "✨", "🎊", "⭐"]) {
+  const colors = ["#ffcc00", "#ff5e78", "#3ddc97", "#7597de", "#ffffff", "#c084fc"];
+  for (let i = 0; i < n; i++) {
+    const d = document.createElement("div");
+    d.className = "confetti";
+    if (Math.random() < 0.35) d.textContent = emojis[rand(emojis.length)];
+    else { d.classList.add("piece"); d.style.background = colors[rand(colors.length)]; }
+    d.style.left = Math.random() * 100 + "vw";
+    d.style.animationDuration = 2 + Math.random() * 2 + "s";
+    d.style.animationDelay = Math.random() * 0.6 + "s";
+    d.style.setProperty("--rot", (rand(720) - 360) + "deg");
+    d.style.setProperty("--drift", (rand(200) - 100) + "px");
+    document.body.appendChild(d);
+    setTimeout(() => d.remove(), 5000);
+  }
+}
+function setFloaters(emojis) {
+  const layer = document.getElementById("bg");
+  layer.innerHTML = "";
+  for (let i = 0; i < 14; i++) {
+    const s = document.createElement("span");
+    s.textContent = emojis[i % emojis.length];
+    s.style.left = Math.random() * 95 + "vw";
+    s.style.fontSize = 24 + rand(28) + "px";
+    s.style.animationDuration = 14 + Math.random() * 12 + "s";
+    s.style.animationDelay = -Math.random() * 20 + "s";
+    layer.appendChild(s);
+  }
+}
+
+/* ---------- الحالة والأدوات ---------- */
+const app = document.getElementById("app");
+let state = {
+  players: loadPlayers(),
+  category: RANDOM,
+  roundCat: null, word: null, emoji: null, outsider: -1,
+  turn: 0, shown: false, votes: [], caught: false, guessOptions: [],
+  timerId: null, lastNew: -1
+};
+let lastKey = null;
+
+function loadPlayers() { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch { return []; } }
+function savePlayers() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state.players)); } catch {} }
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function rand(n) { return Math.floor(Math.random() * n); }
+function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = rand(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function stopTimer() { if (state.timerId) { clearInterval(state.timerId); state.timerId = null; } }
+function catIcon(c) { return c === RANDOM ? RANDOM_ICON : CATEGORIES[c].icon; }
+
+// يرسم الشاشة، ويشغّل أنيميشن الدخول فقط لما تتغير الشاشة
+function paint(key, html) {
+  app.innerHTML = html;
+  if (key !== lastKey) {
+    app.classList.remove("enter"); void app.offsetWidth; app.classList.add("enter");
+    window.scrollTo(0, 0);
+  }
+  lastKey = key;
+}
+
+// صوت ضغطة خفيف لكل الأزرار (إلا اللي لها صوت خاص)
+document.addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (b && !b.disabled && !b.dataset.quiet) SFX.click();
+}, true);
+
+const muteBtn = document.getElementById("muteBtn");
+function updateMute() { muteBtn.textContent = Sound.on ? "🔊" : "🔇"; }
+muteBtn.onclick = () => {
+  Sound.on = !Sound.on;
+  try { localStorage.setItem(SOUND_KEY, Sound.on ? "on" : "off"); } catch {}
+  updateMute();
+  if (Sound.on) SFX.select();
+};
+updateMute();
+
+/* ---------- شاشة الإعداد ---------- */
+function renderSetup() {
+  stopTimer();
+  setFloaters(Object.values(CATEGORIES).map(c => c.icon).concat(["🕵️", "🤫", "❓"]));
+  const p = state.players;
+  const cats = [RANDOM, ...Object.keys(CATEGORIES)];
+  const hasScores = p.some(x => x.score > 0);
+  paint("setup", `
+    <h1><span class="wiggle">🕵️</span> مين برا السالفة؟</h1>
+    <div class="card">
+      <h3>👥 اللاعبين (${p.length})</h3>
+      <div class="row">
+        <input id="nameInput" placeholder="اكتب اسم اللاعب" maxlength="20">
+        <button id="addBtn" data-quiet="1">إضافة</button>
+      </div>
+      <ul class="players">
+        ${p.map((x, i) => `<li class="${i === state.lastNew ? "new" : ""}"><span>${esc(x.name)}${x.score ? ` · ${x.score} ⭐` : ""}</span><button data-del="${i}" data-quiet="1">✕</button></li>`).join("")}
+      </ul>
+      ${p.length < 3 ? `<p class="muted">لازم 3 لاعبين على الأقل</p>` : ""}
+    </div>
+    <div class="card">
+      <h3>📂 التصنيف</h3>
+      <div class="chips">
+        ${cats.map(c => `<button class="chip ${c === state.category ? "active" : ""}" data-cat="${esc(c)}" data-quiet="1">${catIcon(c)} ${esc(c)}</button>`).join("")}
+      </div>
+    </div>
+    <button class="big" id="startBtn" data-quiet="1" ${p.length < 3 ? "disabled" : ""}>ابدأ الجولة 🎲</button>
+    ${hasScores ? `<button class="big ghost" id="resetBtn">تصفير النقاط 🔄</button>` : ""}
+    <div class="card muted" style="margin-top:16px">
+      <b>📖 طريقة اللعب:</b> كل اللاعبين يعرفون السالفة (كلمة سرية) إلا واحد "برا السالفة".
+      تسألون بعض أسئلة عن السالفة بدون ما تفضحونها، وبعدها تصوّتون مين اللي برا السالفة.
+      وبرا السالفة يحاول يعرف السالفة من الأسئلة ويخمّنها بالنهاية.
+    </div>
+  `);
+  state.lastNew = -1;
+  const input = document.getElementById("nameInput");
+  const add = () => {
+    const name = input.value.trim();
+    if (!name) { input.classList.remove("shake"); void input.offsetWidth; input.classList.add("shake"); SFX.wrong(); return; }
+    if (p.some(x => x.name === name)) { SFX.wrong(); alert("الاسم موجود"); return; }
+    p.push({ name, score: 0 }); savePlayers(); SFX.add();
+    state.lastNew = p.length - 1;
+    renderSetup();
+    document.getElementById("nameInput").focus();
+  };
+  document.getElementById("addBtn").onclick = add;
+  input.onkeydown = e => { if (e.key === "Enter") add(); };
+  app.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { SFX.remove(); p.splice(+b.dataset.del, 1); savePlayers(); renderSetup(); });
+  app.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { SFX.select(); state.category = b.dataset.cat; renderSetup(); });
+  document.getElementById("startBtn").onclick = startRound;
+  const r = document.getElementById("resetBtn");
+  if (r) r.onclick = () => { if (confirm("أكيد تبي تصفر النقاط؟")) { p.forEach(x => x.score = 0); savePlayers(); renderSetup(); } };
+}
+
+/* ---------- بداية الجولة ---------- */
+function startRound() {
+  SFX.start();
+  const keys = Object.keys(CATEGORIES);
+  state.roundCat = state.category === RANDOM ? keys[rand(keys.length)] : state.category;
+  const words = CATEGORIES[state.roundCat].words;
+  [state.word, state.emoji] = words[rand(words.length)];
+  state.outsider = rand(state.players.length);
+  state.turn = 0; state.shown = false; state.votes = [];
+  setFloaters([CATEGORIES[state.roundCat].icon, "❓", "🤔", "🕵️"]);
+  renderReveal();
+}
+
+/* ---------- كشف الأدوار ---------- */
+function renderReveal() {
+  const pl = state.players[state.turn];
+  const isOut = state.turn === state.outsider;
+  const cat = state.roundCat;
+  if (!state.shown) {
+    paint("pass-" + state.turn, `
+      <h2>${CATEGORIES[cat].icon} التصنيف: ${esc(cat)}</h2>
+      <div class="card center">
+        <div class="big-emoji bounce">📱</div>
+        <p>عطِ الجوال لـ</p>
+        <h1 class="pop">${esc(pl.name)}</h1>
+        <p class="muted">لا تخلي أحد يشوف الشاشة 👀</p>
+      </div>
+      <button class="big" id="showBtn" data-quiet="1">اضغط وشوف دورك 🔍</button>`);
+    document.getElementById("showBtn").onclick = () => {
+      state.shown = true;
+      if (isOut) { SFX.outsider(); vibrate([120, 60, 120]); } else SFX.reveal();
+      renderReveal();
+    };
+  } else {
+    paint("role-" + state.turn, `
+      <h2>${esc(pl.name)}</h2>
+      ${isOut
+        ? `<div class="role-box role-out glow-red">
+             <div class="big-emoji wiggle">🕵️</div>
+             <div>أنت برا السالفة 🤫</div>
+             <div style="font-size:1rem;font-weight:400;margin-top:10px">حاول تعرف السالفة وما تنكشف</div>
+           </div>`
+        : `<div class="role-box role-word flip">
+             <div style="font-size:1rem;font-weight:400">السالفة هي</div>
+             <div class="big-emoji bounce">${state.emoji}</div>
+             <div>${esc(state.word)}</div>
+           </div>`}
+      <button class="big" id="nextBtn" data-quiet="1">تمام، خبّيها ✔️</button>`);
+    document.getElementById("nextBtn").onclick = () => {
+      SFX.hide();
+      state.shown = false; state.turn++;
+      if (state.turn >= state.players.length) renderQuestions(); else renderReveal();
+    };
+  }
+}
+
+/* ---------- الأسئلة ---------- */
+function renderQuestions() {
+  const order = shuffle(state.players.map((_, i) => i));
+  const pairs = order.map((a, k) => [a, order[(k + 1) % order.length]]);
+  let seconds = 180;
+  paint("questions-" + Math.random(), `
+    <h2><span class="wiggle">❓</span> وقت الأسئلة</h2>
+    <p class="center muted">${CATEGORIES[state.roundCat].icon} التصنيف: ${esc(state.roundCat)}، كل واحد يسأل اللي بعده سؤال عن السالفة</p>
+    <div class="card stagger">
+      ${pairs.map(([a, b], i) => `<div class="pair" style="--i:${i}">🗣️ <b>${esc(state.players[a].name)}</b> يسأل <b>${esc(state.players[b].name)}</b></div>`).join("")}
+    </div>
+    <div class="card"><div class="timer" id="timer">⏳ 3:00</div></div>
+    <button class="big ghost" id="reshuffle">أسئلة جولة ثانية 🔄</button>
+    <button class="big" id="voteBtn">يلا نصوّت 🗳️</button>`);
+  stopTimer();
+  state.timerId = setInterval(() => {
+    seconds--;
+    const el = document.getElementById("timer");
+    if (!el) return stopTimer();
+    if (seconds > 0) {
+      el.textContent = `⏳ ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+      if (seconds <= 10) { el.classList.add("hurry"); SFX.tick(); }
+    } else {
+      el.textContent = "انتهى الوقت ⏰";
+      el.classList.remove("hurry"); el.classList.add("shake");
+      SFX.timeUp(); vibrate(400);
+      stopTimer();
+    }
+  }, 1000);
+  document.getElementById("reshuffle").onclick = renderQuestions;
+  document.getElementById("voteBtn").onclick = () => { stopTimer(); state.turn = 0; state.shown = false; renderVote(); };
+}
+
+/* ---------- التصويت ---------- */
+function renderVote() {
+  const voter = state.players[state.turn];
+  if (!state.shown) {
+    paint("votepass-" + state.turn, `
+      <h2>🗳️ التصويت</h2>
+      <div class="card center">
+        <div class="big-emoji bounce">🤔</div>
+        <p>دور</p><h1 class="pop">${esc(voter.name)}</h1>
+        <p class="muted">صوّت بسرية 🤐</p>
+      </div>
+      <button class="big" id="readyBtn">جاهز</button>`);
+    document.getElementById("readyBtn").onclick = () => { state.shown = true; renderVote(); };
+    return;
+  }
+  paint("vote-" + state.turn, `
+    <h2>${esc(voter.name)}، مين تتوقع برا السالفة؟ 🕵️</h2>
+    <div class="grid stagger">
+      ${state.players.map((x, i) => i === state.turn ? "" : `<button data-v="${i}" data-quiet="1" style="--i:${i}">👤 ${esc(x.name)}</button>`).join("")}
+    </div>`);
+  app.querySelectorAll("[data-v]").forEach(b => b.onclick = () => {
+    SFX.vote();
+    state.votes[state.turn] = +b.dataset.v;
+    state.turn++; state.shown = false;
+    if (state.turn >= state.players.length) renderSuspense(); else renderVote();
+  });
+}
+
+function renderSuspense() {
+  paint("suspense", `
+    <div class="card center" style="margin-top:80px">
+      <div class="big-emoji bounce">🥁</div>
+      <h2>واللي برا السالفة هو...</h2>
+      <div class="big-emoji spin" style="font-size:2.5rem">⏳</div>
+    </div>`);
+  SFX.drumroll();
+  setTimeout(renderVoteResult, 2300);
+}
+
+function renderVoteResult() {
+  const n = state.players.length;
+  const counts = state.players.map(() => 0);
+  state.votes.forEach(v => counts[v]++);
+  const max = Math.max(...counts);
+  const top = counts.map((c, i) => c === max ? i : -1).filter(i => i >= 0);
+  const caught = top.length === 1 && top[0] === state.outsider;
+  state.caught = caught;
+  const out = state.players[state.outsider];
+  paint("result", `
+    <h2>📊 نتيجة التصويت</h2>
+    <div class="card">
+      ${state.players.map((x, i) => `
+        <div class="vote-row">
+          <div class="score-row"><span>${i === state.outsider ? "🕵️ " : "👤 "}${esc(x.name)}</span><span>${counts[i]} صوت</span></div>
+          <div class="bar-wrap"><div class="bar" style="--w:${(counts[i] / (n - 1)) * 100}%"></div></div>
+        </div>`).join("")}
+    </div>
+    <div class="role-box ${caught ? "role-word glow-green" : "role-out glow-red"}">
+      <div style="font-size:1rem;font-weight:400">اللي برا السالفة هو</div>
+      <div class="big-emoji ${caught ? "bounce" : "wiggle"}">${caught ? "🎯" : "😎"}</div>
+      <div>${esc(out.name)}</div>
+      <div style="font-size:1.1rem;margin-top:10px">${caught ? "انكشف! 🎉" : "فلت منكم! 🏃‍♂️💨"}</div>
+    </div>
+    <button class="big" id="guessBtn">خلّ ${esc(out.name)} يخمّن السالفة 🤔</button>`);
+  if (caught) { SFX.caught(); confetti(); vibrate([80, 40, 80, 40, 200]); }
+  else { SFX.escaped(); confetti(30, ["😎", "🏃‍♂️", "💨"]); }
+  document.getElementById("guessBtn").onclick = renderGuess;
+}
+
+/* ---------- تخمين برا السالفة ---------- */
+function renderGuess() {
+  const words = CATEGORIES[state.roundCat].words;
+  const others = shuffle(words.filter(w => w[0] !== state.word)).slice(0, 7);
+  state.guessOptions = shuffle([[state.word, state.emoji], ...others]);
+  paint("guess", `
+    <h2>${esc(state.players[state.outsider].name)}، وش السالفة؟ 🤔</h2>
+    <p class="center muted">${CATEGORIES[state.roundCat].icon} التصنيف: ${esc(state.roundCat)}</p>
+    <div class="grid stagger">
+      ${state.guessOptions.map(([w, e], i) => `<button data-g="${i}" data-quiet="1" style="--i:${i}">${e} ${esc(w)}</button>`).join("")}
+    </div>`);
+  const buttons = app.querySelectorAll("[data-g]");
+  buttons.forEach(b => b.onclick = () => {
+    buttons.forEach(x => x.disabled = true);
+    const guess = state.guessOptions[+b.dataset.g][0];
+    const right = guess === state.word;
+    buttons.forEach(x => { if (state.guessOptions[+x.dataset.g][0] === state.word) { x.classList.add("right", "pop"); x.style.opacity = 1; } });
+    if (right) { SFX.correct(); confetti(40, [state.emoji, "✨"]); }
+    else { b.classList.add("wrong", "shake"); b.style.opacity = 1; SFX.wrong(); vibrate(300); }
+    setTimeout(() => finishRound(guess), 1500);
+  });
+}
+
+/* ---------- النقاط ونهاية الجولة ---------- */
+function finishRound(guess) {
+  const guessedRight = guess === state.word;
+  const notes = [];
+  state.players.forEach((p, i) => {
+    if (i !== state.outsider && state.votes[i] === state.outsider) { p.score += 1; notes.push(`${p.name} +1 (صوّت صح) ✅`); }
+  });
+  const out = state.players[state.outsider];
+  if (!state.caught) { out.score += 2; notes.push(`${out.name} +2 (ما انكشف) 😎`); }
+  if (guessedRight) { out.score += 2; notes.push(`${out.name} +2 (عرف السالفة) 🧠`); }
+  savePlayers();
+
+  const ranking = state.players.slice().sort((a, b) => b.score - a.score);
+  const medals = ["🥇", "🥈", "🥉"];
+  paint("finish", `
+    <h2>${guessedRight ? "عرفها! 🔥" : "ما عرفها ❌"}</h2>
+    <div class="role-box role-word pop">
+      <div style="font-size:1rem;font-weight:400">السالفة كانت</div>
+      <div class="big-emoji bounce">${state.emoji}</div>
+      <div>${esc(state.word)}</div>
+    </div>
+    <div class="card">
+      <h3>✨ نقاط الجولة</h3>
+      <div class="stagger">
+        ${notes.length ? notes.map((n, i) => `<div class="muted" style="--i:${i}">• ${esc(n)}</div>`).join("") : `<div class="muted">ما أحد أخذ نقاط 🤷</div>`}
+      </div>
+    </div>
+    <div class="card">
+      <h3>🏆 الترتيب</h3>
+      <div class="stagger">
+        ${ranking.map((p, i) => `<div class="score-row" style="--i:${i}"><span>${i === 0 ? `<span class="wiggle">👑</span> ` : (medals[i] || "▫️") + " "}${esc(p.name)}</span><span>${p.score} ⭐</span></div>`).join("")}
+      </div>
+    </div>
+    <button class="big" id="againBtn" data-quiet="1">جولة جديدة 🎲</button>
+    <button class="big ghost" id="homeBtn">الرئيسية 🏠</button>`);
+  document.getElementById("againBtn").onclick = startRound;
+  document.getElementById("homeBtn").onclick = renderSetup;
+}
+
+renderSetup();
+</script>
+</body>
+</html>
