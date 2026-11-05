@@ -15,9 +15,19 @@ const Voice = {
   meterCtx: null, meters: new Map(), meterTimer: null,
 
   supported() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.RTCPeerConnection); },
-  meta() { return { name: myName(), voice: this.on, muted: this.muted }; },
+  meta() { return { voice: this.on, muted: this.muted }; },
   track() { if (On.ch) On.ch.track(this.meta()).catch(() => {}); },
-  send(msg, to = null) { if (On.ch) On.ch.send({ type: "broadcast", event: "rtc", payload: { ...msg, from: myId, to } }); },
+  // رسائل الاتصال: "join" العامة بدون محتوى، والباقي مشفر بيني وبين الشخص نفسه
+  send(msg, to = null) {
+    const ch = On.ch;
+    if (!ch) return;
+    if (!to) { if (msg.type === "join") ch.send({ type: "broadcast", event: "rtc", payload: { type: "join", from: myId } }); return; }
+    const pk = pkOf(to);
+    if (!pk) return;
+    Sec.pairKey(pk).then(k => Sec.seal(k, msg)).then(box => {
+      if (ch === On.ch) ch.send({ type: "broadcast", event: "rtc", payload: { from: myId, to, box } });
+    }).catch(e => console.warn("voice send", e));
+  },
 
   async join() {
     if (this.on || this.joining) return;
@@ -46,7 +56,7 @@ const Voice = {
 
   leave(silent = false) {
     if (!this.on) return;
-    if (!silent) this.send({ type: "leave" });
+    if (!silent) [...this.peers.keys()].forEach(id => this.send({ type: "leave" }, id));
     [...this.peers.keys()].forEach(id => this.closePeer(id));
     if (this.stream) this.stream.getTracks().forEach(t => t.stop());
     this.stream = null; this.on = false; this.muted = false;
@@ -106,9 +116,19 @@ const Voice = {
   },
 
   // رسائل الاتصال من القناة (نتحقق منها لأنها جاية من برا)
-  async onSignal(p) {
-    if (!this.on || !p || typeof p !== "object" || typeof p.from !== "string" || p.from === myId) return;
-    if (p.to && p.to !== myId) return;
+  async onSignal(raw) {
+    if (!this.on || !raw || typeof raw !== "object" || typeof raw.from !== "string" || raw.from === myId) return;
+    if (raw.to && raw.to !== myId) return;
+    // نقبل بس من لاعبين داخل الغرفة، والرسائل الخاصة لازم تنفك بمفتاحنا المشترك
+    const pk = pkOf(raw.from);
+    if (!pk) return;
+    let p;
+    if (raw.box) {
+      try { p = await Sec.open(await Sec.pairKey(pk), raw.box); } catch { return; }
+      if (!p || typeof p !== "object") return;
+      p.from = raw.from;
+    } else if (raw.type === "join") p = { type: "join", from: raw.from };
+    else return;
     const validDesc = d => d && typeof d === "object" && (d.type === "offer" || d.type === "answer") && typeof d.sdp === "string" && d.sdp.length < 20000;
     try {
       switch (p.type) {

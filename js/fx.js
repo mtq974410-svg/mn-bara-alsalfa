@@ -409,6 +409,11 @@ function pkey(p) { return p.id || p.name; }
 /* ----- بوسترات الأفلام والمسلسلات (من TMDB) ----- */
 const POSTER_BASE = "https://image.tmdb.org/t/p/w342";
 const TMDB_NOTE = `<p class="tmdb-note"><span class="tmdb-credit" style="position:static">TMDB</span>This product uses the TMDB API but is not endorsed or certified by TMDB. صور الأفلام والمسلسلات والكرتون من <a href="https://www.themoviedb.org/" target="_blank" rel="noopener" style="color:inherit">themoviedb.org</a></p>`;
+// لو البوستر ما تحمّل نعرض الإيموجي (بدون onerror داخل الـ HTML عشان سياسة الحماية CSP)
+document.addEventListener("error", e => {
+  const t = e.target;
+  if (t && t.classList && t.classList.contains("poster") && t.parentNode) t.parentNode.classList.add("broken");
+}, true);
 // نجيب البوستر من بيانات الكلمات نفسها، مو من رسائل الغرفة
 function posterFor(cat, word) {
   const w = CATEGORIES[cat] && CATEGORIES[cat].words.find(x => x[0] === word);
@@ -421,7 +426,7 @@ function preloadPoster(cat, word) {
 function posterHtml(url, emoji, cls = "") {
   return `
     <div class="poster-wrap ${cls}">
-      <img class="poster" src="${esc(url)}" alt="" referrerpolicy="no-referrer" onerror="this.parentNode.classList.add('broken')">
+      <img class="poster" src="${esc(url)}" alt="" referrerpolicy="no-referrer">
       <div class="big-emoji poster-fallback">${esc(emoji)}</div>
       <span class="tmdb-credit">TMDB</span>
     </div>`;
@@ -477,10 +482,10 @@ function questionHtml({ cat, round, i, total, a, b }) {
   return `
     <div class="q-head">
       <span class="pill">${CATEGORIES[cat].icon} ${esc(cat)}</span>
-      <span class="pill">الجولة ${round}</span>
+      <span class="pill">الجولة ${Number(round) || 1}</span>
     </div>
     <div class="q-stage">
-      <div class="q-count">السؤال ${i + 1} من ${total}</div>
+      <div class="q-count">السؤال ${(Number(i) || 0) + 1} من ${Number(total) || 1}</div>
       <div class="q-person asker">${avatar(a.key, "xxl")}<span class="name-tag">${esc(a.name)}</span></div>
       <div class="q-asks">يسأل</div>
       <svg class="q-arrow" viewBox="0 0 24 44" aria-hidden="true"><path d="M12 3v34M4 28l8 10 8-10"/></svg>

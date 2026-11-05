@@ -140,7 +140,7 @@ input {
 }
 input::placeholder { color: var(--placeholder); }
 input:focus { border-color: var(--cyan); box-shadow: 0 0 0 4px rgba(34,211,238,.18); }
-.code-input { text-align: center; letter-spacing: 10px; font-family: var(--display); font-size: 1.6rem; padding: 10px; direction: ltr; }
+.code-input { text-align: center; letter-spacing: 6px; font-family: var(--display); font-size: 1.6rem; padding: 10px; direction: ltr; }
 
 /* ----- الأفاتار ----- */
 .av {
@@ -212,10 +212,10 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 4px rgba(34,211,238,.
 .chip.active { color: #fff; background: linear-gradient(135deg, var(--cyan), var(--violet)); border-color: transparent; box-shadow: 0 4px 0 #4c2fa8, 0 8px 20px rgba(139,92,246,.4); transform: translateY(-1px); }
 
 /* ----- كود الغرفة ----- */
-.room-code { display: flex; justify-content: center; gap: 10px; direction: ltr; margin: 6px 0 12px; }
+.room-code { display: flex; justify-content: center; gap: 7px; direction: ltr; margin: 6px 0 12px; }
 .room-code span {
-  display: inline-grid; place-items: center; width: 62px; height: 76px; border-radius: 18px;
-  font-family: var(--display); font-size: 2.8rem; line-height: 1;
+  display: inline-grid; place-items: center; width: 48px; height: 64px; border-radius: 15px;
+  font-family: var(--display); font-size: 2.3rem; line-height: 1;
   background: var(--tile);
   border: 1px solid var(--line); box-shadow: 0 8px 0 var(--shadow), 0 14px 30px var(--shadow);
   animation: tileIn .6s cubic-bezier(.2,1.6,.4,1) both; animation-delay: calc(var(--i) * 110ms);
@@ -295,6 +295,9 @@ input:focus { border-color: var(--cyan); box-shadow: 0 0 0 4px rgba(34,211,238,.
 .q-progress { height: 10px; border-radius: 999px; background: var(--track); overflow: hidden; margin: 18px 4px 4px; }
 .q-progress div { height: 100%; width: var(--w); border-radius: 999px; background: linear-gradient(90deg, var(--orange), var(--pink)); box-shadow: 0 0 14px rgba(255,176,32,.6); animation: grow .8s cubic-bezier(.2,.9,.3,1) both; }
 .you { color: var(--gold); font-weight: 900; font-size: 1.05rem; animation: pulse .7s ease-in-out infinite alternate; }
+
+.fp-box { margin-top: 12px; padding: 12px; border-radius: 16px; background: var(--soft); border: 1px dashed var(--line); text-align: center; font-weight: 700; }
+.fp { font-size: 1.9rem; letter-spacing: 6px; margin-top: 4px; }
 
 /* ----- المكالمة الصوتية ----- */
 .voice-fab {
@@ -491,5 +494,6 @@ details.how ol { margin: 10px 0 0; padding-inline-start: 22px; color: var(--mute
 }
 @media (max-width: 360px) {
   .logo { font-size: 2.6rem; }
-  .room-code span { width: 52px; height: 66px; font-size: 2.3rem; }
+  .room-code { gap: 5px; }
+  .room-code span { width: 40px; height: 56px; font-size: 2rem; border-radius: 12px; }
 }
