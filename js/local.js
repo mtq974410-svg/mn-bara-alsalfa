@@ -81,6 +81,7 @@ function startRound() {
   state.roundNo++;
   const words = CATEGORIES[state.roundCat].words;
   [state.word, state.emoji] = words[rand(words.length)];
+  preloadPoster(state.roundCat, state.word);
   state.outsider = rand(state.players.length);
   state.turn = 0; state.shown = false; state.votes = [];
   setFloaters([CATEGORIES[state.roundCat].icon, "❓", "🤔", "🕵️"]);
@@ -110,7 +111,7 @@ function renderReveal() {
   } else {
     paint("role-" + state.turn, `
       <div class="title">${esc(pl.name)}</div>
-      ${roleCardHtml(isOut, state.word, state.emoji)}
+      ${roleCardHtml(isOut, state.word, state.emoji, posterFor(state.roundCat, state.word))}
       <button class="big" id="nextBtn" data-quiet="1">تمام، خبّيها ✔️</button>`);
     document.getElementById("nextBtn").onclick = () => {
       SFX.hide();
@@ -241,7 +242,7 @@ function finishRound(guess) {
 
   paint("finish", `
     <div class="title ${guessedRight ? "pop" : "shake"}">${guessedRight ? "عرفها! 🔥" : "ما عرفها ❌"}</div>
-    ${wordRevealHtml(state.word, state.emoji)}
+    ${wordRevealHtml(state.word, state.emoji, posterFor(state.roundCat, state.word))}
     <div class="card">
       <div class="card-title">🏆 الترتيب</div>
       ${rankingHtml(state.players)}

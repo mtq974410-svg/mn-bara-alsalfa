@@ -379,11 +379,33 @@ function avatar(key, size = "") {
 }
 function pkey(p) { return p.id || p.name; }
 
+/* ----- بوسترات الأفلام والمسلسلات (من TMDB) ----- */
+const POSTER_BASE = "https://image.tmdb.org/t/p/w342";
+const TMDB_NOTE = `<p class="tmdb-note"><span class="tmdb-credit" style="position:static">TMDB</span>This product uses the TMDB API but is not endorsed or certified by TMDB. صور الأفلام والمسلسلات من <a href="https://www.themoviedb.org/" target="_blank" rel="noopener" style="color:inherit">themoviedb.org</a></p>`;
+// نجيب البوستر من بيانات الكلمات نفسها، مو من رسائل الغرفة
+function posterFor(cat, word) {
+  const w = CATEGORIES[cat] && CATEGORIES[cat].words.find(x => x[0] === word);
+  return w && /^\/[A-Za-z0-9]+\.jpg$/.test(w[2] || "") ? POSTER_BASE + w[2] : "";
+}
+function preloadPoster(cat, word) {
+  const url = posterFor(cat, word);
+  if (url && preloadPoster.last !== url) { preloadPoster.last = url; const img = new Image(); img.referrerPolicy = "no-referrer"; img.src = url; }
+}
+function posterHtml(url, emoji, cls = "") {
+  return `
+    <div class="poster-wrap ${cls}">
+      <img class="poster" src="${esc(url)}" alt="" referrerpolicy="no-referrer" onerror="this.parentNode.classList.add('broken')">
+      <div class="big-emoji poster-fallback">${esc(emoji)}</div>
+      <span class="tmdb-credit">TMDB</span>
+    </div>`;
+}
+
 // كرت الدور: يبدأ مقلوب وينقلب ثلاثي الأبعاد
-function roleCardHtml(isOut, word, emoji) {
+function roleCardHtml(isOut, word, emoji, poster = "") {
+  const withPoster = !isOut && poster;
   return `
     <div class="flip-card">
-      <div class="flip-inner">
+      <div class="flip-inner ${withPoster ? "has-poster" : ""}">
         <div class="face back-face"><div class="card-mark">؟</div></div>
         <div class="face front-face ${isOut ? "is-out" : "is-word"}">
           ${isOut
@@ -391,7 +413,7 @@ function roleCardHtml(isOut, word, emoji) {
                <div class="role-title">أنت برا السالفة</div>
                <div class="role-sub">حاول تعرف السالفة وما تنكشف 🤫</div>`
             : `<div class="role-sub">السالفة هي</div>
-               <div class="big-emoji float">${esc(emoji)}</div>
+               ${withPoster ? posterHtml(poster, emoji) : `<div class="big-emoji float">${esc(emoji)}</div>`}
                <div class="role-title">${esc(word)}</div>`}
         </div>
       </div>
@@ -496,11 +518,11 @@ function optionsHtml(options) {
   </div>`;
 }
 
-function wordRevealHtml(word, emoji) {
+function wordRevealHtml(word, emoji, poster = "") {
   return `
     <div class="word-reveal pop">
       <div class="role-sub">السالفة كانت</div>
-      <div class="big-emoji float">${esc(emoji)}</div>
+      ${poster ? posterHtml(poster, emoji, "small") : `<div class="big-emoji float">${esc(emoji)}</div>`}
       <div class="role-title">${esc(word)}</div>
     </div>`;
 }

@@ -68,7 +68,8 @@ function renderHome() {
         <li>تصوّتون مين تتوقعون إنه برا السالفة.</li>
         <li>وبرا السالفة يحاول يخمّن السالفة بالنهاية.</li>
       </ol>
-    </details>`);
+    </details>
+    ${TMDB_NOTE}`);
   const nameEl = document.getElementById("homeName");
   const codeEl = document.getElementById("codeInput");
   const needName = () => {
@@ -539,6 +540,7 @@ function renderOnline() {
     return;
   }
 
+  if (rd) preloadPoster(rd.cat, rd.word);
   if (rd) setFloaters([CATEGORIES[rd.cat].icon, "❓", "🤔", "🕵️"]);
   else setFloaters(HOME_FLOATERS);
 
@@ -576,7 +578,7 @@ function peekHtml(isOut) {
   const rd = On.room.round;
   return `
     <button class="big ghost" id="peekBtn" data-quiet="1">${On.ui.peek ? "🙈 خبّ دوري" : "👁️ شوف دوري"}</button>
-    ${On.ui.peek ? roleCardHtml(isOut, rd.word, rd.emoji) : ""}`;
+    ${On.ui.peek ? roleCardHtml(isOut, rd.word, rd.emoji, posterFor(rd.cat, rd.word)) : ""}`;
 }
 function bindPeek() {
   const b = document.getElementById("peekBtn");
@@ -660,7 +662,7 @@ function renderRolesOnline(screen, isOut) {
       </div>
       <button class="big" id="showBtn" data-quiet="1">اقلب الكرت 🃏</button>`;
   } else if (!ready) {
-    body = `${roleCardHtml(isOut, rd.word, rd.emoji)}
+    body = `${roleCardHtml(isOut, rd.word, rd.emoji, posterFor(rd.cat, rd.word))}
       <button class="big" id="readyBtn" data-quiet="1">شفت دوري ✔️</button>`;
   } else {
     body = `${pendingHtml(rd.ready, "جاهزين")}${peekHtml(isOut)}`;
@@ -811,7 +813,7 @@ function renderFinishOnline(screen) {
   paintEl(screen, "finish-" + rd.n, `
     <div class="title ${right ? "pop" : "shake"}">${right ? "عرفها! 🔥" : "ما عرفها ❌"}</div>
     ${guessed ? `<p class="hint" style="margin:-6px 0 12px">${esc(nameOf(rd.outsiderId))} خمّن: ${esc(guessed[1])} ${esc(guessed[0])}</p>` : ""}
-    ${wordRevealHtml(rd.word, rd.emoji)}
+    ${wordRevealHtml(rd.word, rd.emoji, posterFor(rd.cat, rd.word))}
     <div class="card">
       <div class="card-title">🏆 الترتيب</div>
       ${rankingHtml(r.players)}
