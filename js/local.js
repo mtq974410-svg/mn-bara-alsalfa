@@ -2,28 +2,24 @@
    اللعب على جوال واحد
    ============================================================ */
 const STORE_KEY = "bara_salfa_players";
+const CATS_KEY = "bara_cats";
 
 let state = {
   players: loadPlayers(),
-  category: RANDOM,
-  roundCat: null, word: null, emoji: null, outsider: -1,
+  cats: loadCats(),
+  roundCat: null, word: null, emoji: null, outsider: -1, roundNo: 0,
   turn: 0, shown: false, votes: [], caught: false, guessOptions: [],
-  timerId: null, lastNew: -1
+  pairs: [], qi: 0, qset: 0, lastNew: -1
 };
 
 function loadPlayers() { try { return JSON.parse(LS.get(STORE_KEY)) || []; } catch { return []; } }
 function savePlayers() { LS.set(STORE_KEY, JSON.stringify(state.players)); }
-function stopTimer() { if (state.timerId) { clearInterval(state.timerId); state.timerId = null; } }
+function loadCats() { try { return validCats(JSON.parse(LS.get(CATS_KEY))); } catch { return []; } }
+function saveCats(list) { LS.set(CATS_KEY, JSON.stringify(list)); }
 function catPill(cat) { return `<div class="pill">${CATEGORIES[cat].icon} ${esc(cat)}</div>`; }
-
-function chipsHtml(active) {
-  return `<div class="chips">${[RANDOM, ...Object.keys(CATEGORIES)].map(c =>
-    `<button class="chip ${c === active ? "active" : ""}" data-cat="${esc(c)}" data-quiet="1">${catIcon(c)} ${esc(c)}</button>`).join("")}</div>`;
-}
 
 /* ---------- الإعداد ---------- */
 function renderSetup() {
-  stopTimer();
   Music.setMood("calm");
   setFloaters(HOME_FLOATERS);
   const p = state.players;
@@ -50,8 +46,8 @@ function renderSetup() {
       ${p.length < 3 ? `<p class="hint">لازم 3 لاعبين على الأقل</p>` : ""}
     </div>
     <div class="card">
-      <div class="card-title">📂 التصنيف</div>
-      ${chipsHtml(state.category)}
+      <div class="card-title">📂 التصنيفات <span class="badge">اختار واحد أو أكثر</span></div>
+      ${chipsHtml(state.cats)}
     </div>
     <button class="big" id="startBtn" data-quiet="1" ${p.length < 3 ? "disabled" : ""}>ابدأ الجولة 🎲</button>
     ${hasScores ? `<button class="big ghost" id="resetBtn">تصفير النقاط 🔄</button>` : ""}
@@ -70,7 +66,7 @@ function renderSetup() {
   document.getElementById("addBtn").onclick = add;
   input.onkeydown = e => { if (e.key === "Enter") add(); };
   app.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { SFX.remove(); p.splice(+b.dataset.del, 1); savePlayers(); renderSetup(); });
-  app.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { SFX.select(); state.category = b.dataset.cat; renderSetup(); });
+  app.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { SFX.select(); state.cats = toggleCat(state.cats, b.dataset.cat); saveCats(state.cats); renderSetup(); });
   document.getElementById("startBtn").onclick = startRound;
   document.getElementById("homeBack").onclick = renderHome;
   const r = document.getElementById("resetBtn");
@@ -81,8 +77,8 @@ function renderSetup() {
 function startRound() {
   SFX.start();
   Music.setMood("calm");
-  const keys = Object.keys(CATEGORIES);
-  state.roundCat = state.category === RANDOM ? keys[rand(keys.length)] : state.category;
+  state.roundCat = pickCat(state.cats);
+  state.roundNo++;
   const words = CATEGORIES[state.roundCat].words;
   [state.word, state.emoji] = words[rand(words.length)];
   state.outsider = rand(state.players.length);
@@ -124,40 +120,35 @@ function renderReveal() {
   }
 }
 
-/* ---------- الأسئلة ---------- */
-function pairsHtml(pairs, nameOfKey) {
-  return `<div class="card stagger">
-    ${pairs.map(([a, b], i) => `
-      <div class="pair" style="--i:${i}">
-        ${avatar(a, "sm")}<b>${esc(nameOfKey(a))}</b><span class="asks">يسأل ←</span>${avatar(b, "sm")}<b>${esc(nameOfKey(b))}</b>
-      </div>`).join("")}
-  </div>`;
+/* ---------- الأسئلة: سؤال واحد كل مرة ---------- */
+// كل لاعب يسأل مرة وينسأل مرة، بترتيب عشوائي
+function makePairs(keys) {
+  const order = shuffle(keys);
+  return order.map((a, k) => [a, order[(k + 1) % order.length]]);
 }
 
-function renderQuestions() {
+function renderQuestions(newSet = true) {
   Music.setMood("tense");
-  const order = shuffle(state.players.map(p => p.name));
-  const pairs = order.map((a, k) => [a, order[(k + 1) % order.length]]);
-  const total = 180;
-  let seconds = total;
-  paint("questions-" + Math.random(), `
-    <div class="title"><span class="wiggle">❓</span> وقت الأسئلة</div>
-    ${catPill(state.roundCat)}
-    ${timerHtml()}
-    <p class="hint" style="margin:0 0 12px">كل واحد يسأل اللي بعده سؤال عن السالفة</p>
-    ${pairsHtml(pairs, n => n)}
-    <button class="big ghost" id="reshuffle">أسئلة جولة ثانية 🔄</button>
-    <button class="big" id="voteBtn">يلا نصوّت 🗳️</button>`);
-  stopTimer();
-  updateTimer(seconds, total);
-  state.timerId = setInterval(() => {
-    seconds--;
-    if (!updateTimer(seconds, total)) return stopTimer();
-    if (seconds > 0 && seconds <= 10) { SFX.tick(); if (seconds <= 5) SFX.heartbeat(); }
-    if (seconds <= 0) { SFX.timeUp(); stopTimer(); }
-  }, 1000);
-  document.getElementById("reshuffle").onclick = () => { SFX.whoosh(); renderQuestions(); };
-  document.getElementById("voteBtn").onclick = () => { stopTimer(); SFX.vote(); state.turn = 0; state.shown = false; renderVote(); };
+  if (newSet) { state.pairs = makePairs(state.players.map(p => p.name)); state.qi = 0; state.qset++; }
+  if (state.qi >= state.pairs.length) {
+    paint("qdone-" + state.qset, `
+      ${qDoneHtml()}
+      <button class="big ghost" id="reshuffle">أسئلة جولة ثانية 🔄</button>
+      <button class="big" id="voteBtn">يلا نصوّت 🗳️</button>`);
+    SFX.pop();
+    document.getElementById("reshuffle").onclick = () => { SFX.whoosh(); renderQuestions(true); };
+    document.getElementById("voteBtn").onclick = () => { SFX.vote(); state.turn = 0; state.shown = false; renderVote(); };
+    return;
+  }
+  const [a, b] = state.pairs[state.qi];
+  paint("q-" + state.qset + "-" + state.qi, `
+    ${questionHtml({ cat: state.roundCat, round: state.roundNo, i: state.qi, total: state.pairs.length, a: { key: a, name: a }, b: { key: b, name: b } })}
+    <button class="big" id="nextQ" data-quiet="1">خلصنا ✔️</button>
+    <button class="big ghost" id="skipQ">يلا نصوّت على طول 🗳️</button>`);
+  SFX.whoosh();
+  setTimeout(SFX.pop, 450);
+  document.getElementById("nextQ").onclick = () => { SFX.select(); state.qi++; renderQuestions(false); };
+  document.getElementById("skipQ").onclick = () => { SFX.vote(); state.turn = 0; state.shown = false; renderVote(); };
 }
 
 /* ---------- التصويت ---------- */
