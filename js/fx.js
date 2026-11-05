@@ -389,24 +389,19 @@ const HOME_FLOATERS = Object.values(CATEGORIES).map(c => c.icon).concat(["🕵�
 /* ============================================================
    مكونات الواجهة المشتركة
    ============================================================ */
-const AV_COLORS = ["#ff6b6b", "#ffa94d", "#ffd43b", "#69db7c", "#38d9a9", "#4dabf7", "#748ffc", "#da77f2", "#f783ac", "#20c997", "#fab005", "#5c7cfa"];
 function hashStr(s) { let h = 7; for (const ch of String(s)) h = (h * 31 + ch.codePointAt(0)) | 0; return Math.abs(h); }
-// كل لاعب يقدر يغيّر شخصيته: نحفظ رقم الشكل (av) لكل لاعب
-const AV_SEEDS = new Map();
-function setAvSeeds(players) {
-  AV_SEEDS.clear();
-  players.forEach(p => { const n = Number(p.av) || 0; if (n > 0 && n < 10000) AV_SEEDS.set(pkey(p), n); });
+// الشكل اللي اختاره كل لاعب (look)، والباقين نولّد لهم شكل ثابت من اسمهم
+const AV_LOOKS = new Map();
+function setAvLooks(players) {
+  AV_LOOKS.clear();
+  players.forEach(p => { if (decodeLook(p.look)) AV_LOOKS.set(pkey(p), p.look); });
 }
-// صورة اللاعب: شخصية كرتونية مضحكة (من js/chars.js) فوق خلفية ملونة
-function avatar(key, size = "") {
-  const seed = AV_SEEDS.get(key) || 0;
-  const full = seed ? key + ":" + seed : String(key);
-  const h = hashStr(full);
-  return `<span class="av ${size}" style="--c:${AV_COLORS[h % AV_COLORS.length]}">${charSvg(full)}</span>`;
-}
-// زر تغيير الشخصية (يلف على الأفاتار)
+function lookFor(key) { return decodeLook(AV_LOOKS.get(key)) || randomLook(key); }
+// صورة اللاعب: شخصية كرتونية مضحكة (من js/chars.js)
+function avatar(key, size = "") { return lookAvatar(lookFor(key), size); }
+// زر يفتح شاشة "شخصيتك"
 function avatarBtn(key, attr) {
-  return `<button class="av-btn" ${attr} data-quiet="1" aria-label="غيّر الشخصية">${avatar(key)}<span class="av-swap">🔄</span></button>`;
+  return `<button class="av-btn" ${attr} data-quiet="1" aria-label="غيّر الشخصية">${avatar(key)}<span class="av-swap">✏️</span></button>`;
 }
 function pkey(p) { return p.id || p.name; }
 
