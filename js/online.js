@@ -12,7 +12,6 @@ const PID_KEY = "bara_pid";
 const NAME_KEY = "bara_name";
 const HOST_PREFIX = "bara_host_";
 const MAX_PLAYERS = 12;
-const QUESTION_MS = 180000;
 
 const myId = LS.get(PID_KEY) || (() => {
   const id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2);
@@ -23,8 +22,9 @@ const myId = LS.get(PID_KEY) || (() => {
 const On = {
   sb: null, ch: null, code: null, isHost: false,
   room: null, online: new Set(),
-  wasIn: false, joinTimer: null, timerId: null, lastJoinSent: 0,
-  lastSig: null, lastPhase: null,
+  wasIn: false, joinTimer: null, lastJoinSent: 0,
+  lastSig: null, lastPhase: null, lastQ: null,
+  chatOpen: false, chatSeenT: null,
   ui: {}
 };
 function freshUi() { return { shown: false, peek: false, resultShown: 0, suspenseFor: 0, finishShown: 0, timeUpFor: null }; }
@@ -123,7 +123,7 @@ function renderNameForRoom(code) {
 function createRoom() {
   const code = String(1000 + rand(9000));
   On.isHost = true;
-  On.room = { code, hostId: myId, phase: "lobby", category: RANDOM, players: [{ id: myId, name: myName(), score: 0 }], waiting: [], round: null, chat: [], seq: 1 };
+  On.room = { code, hostId: myId, phase: "lobby", categories: loadCats(), players: [{ id: myId, name: myName(), score: 0 }], waiting: [], round: null, chat: [], seq: 1 };
   sysChat(`${myName()} سوّى الغرفة 🎉`);
   saveHost();
   connect(code);
@@ -132,7 +132,10 @@ function createRoom() {
 function joinRoom(code) {
   let saved = null;
   try { saved = JSON.parse(LS.get(HOST_PREFIX + code)); } catch {}
-  if (saved && saved.hostId === myId) { On.isHost = true; On.room = saved; }
+  if (saved && saved.hostId === myId) {
+    saved.categories = validCats(saved.categories);   // غرف محفوظة من نسخة قديمة
+    On.isHost = true; On.room = saved;
+  }
   else { On.isHost = false; On.room = null; }
   connect(code);
 }
@@ -183,7 +186,8 @@ function leaveChannel() {
   if (On.ch && On.sb) On.sb.removeChannel(On.ch);
   On.ch = null;
   clearTimeout(On.joinTimer);
-  clearInterval(On.timerId); On.timerId = null;
+  removeChat();
+  On.chatSeenT = null;
 }
 
 function renderError(msg, sub = "") {
@@ -213,7 +217,8 @@ document.addEventListener("visibilitychange", () => {
 /* ---------- جهة اللاعب: استقبال الحالة ---------- */
 function receiveState(r) {
   if (!r || typeof r !== "object" || !Array.isArray(r.players) || !Array.isArray(r.waiting) || !Array.isArray(r.chat) || r.code !== On.code) return;
-  if (r.category !== RANDOM && !CATEGORIES[r.category]) return;
+  if (!Array.isArray(r.categories) || r.categories.some(c => !CATEGORIES[c])) return;
+  if (r.round && (!Array.isArray(r.round.pairs) || !r.round.pairs.every(p => Array.isArray(p) && p.length === 2))) return;
   if (r.round && !CATEGORIES[r.round.cat]) return;
   if (On.room && (r.hostId !== On.room.hostId || r.seq < On.room.seq)) return;
   clearTimeout(On.joinTimer);
@@ -277,6 +282,12 @@ function hostHandle(a) {
       rd.ready[from] = true;
       if (r.players.every(x => rd.ready[x.id])) toQuestions();
       break;
+    case "next":
+      // ينتقل للسؤال الجاي: صاحب الغرفة أو اللي يسأل أو اللي ينسأل
+      if (r.phase !== "questions" || a.qi !== rd.qi || rd.qi >= rd.pairs.length) return;
+      if (from !== r.hostId && !rd.pairs[rd.qi].includes(from)) return;
+      rd.qi++;
+      break;
     case "vote":
       if (r.phase !== "vote" || !p || a.target === from || !r.players.some(x => x.id === a.target)) return;
       rd.votes[from] = a.target;
@@ -303,13 +314,12 @@ function hostStart() {
   const r = On.room;
   r.players.push(...r.waiting); r.waiting = [];
   if (r.players.length < 3) { toast("لازم 3 لاعبين على الأقل"); commit(); return; }
-  const keys = Object.keys(CATEGORIES);
-  const cat = r.category === RANDOM ? keys[rand(keys.length)] : r.category;
+  const cat = pickCat(r.categories);
   const [word, emoji] = CATEGORIES[cat].words[rand(CATEGORIES[cat].words.length)];
   r.round = {
     n: ((r.round && r.round.n) || 0) + 1, q: 0,
     cat, word, emoji, outsiderId: r.players[rand(r.players.length)].id,
-    ready: {}, votes: {}, pairs: [], endsAt: 0, caught: false, options: [], guess: null, notes: []
+    ready: {}, votes: {}, pairs: [], qi: 0, caught: false, options: [], guess: null, notes: []
   };
   r.phase = "roles";
   commit();
@@ -317,9 +327,8 @@ function hostStart() {
 
 function toQuestions() {
   const r = On.room, rd = r.round;
-  const order = shuffle(r.players.map(p => p.id));
-  rd.pairs = order.map((a, k) => [a, order[(k + 1) % order.length]]);
-  rd.endsAt = Date.now() + QUESTION_MS;
+  rd.pairs = makePairs(r.players.map(p => p.id));
+  rd.qi = 0;
   rd.q++;
   r.phase = "questions";
 }
@@ -359,7 +368,7 @@ function finishOnline(guess) {
 }
 
 const Host = {
-  setCat(c) { On.room.category = c; commit(); },
+  toggleCat(c) { On.room.categories = toggleCat(On.room.categories, c); saveCats(On.room.categories); commit(); },
   kick(id) {
     const r = On.room;
     const p = r.players.concat(r.waiting).find(x => x.id === id);
@@ -390,18 +399,33 @@ const Host = {
 
 /* ---------- الرسم ---------- */
 function ensureLayout() {
-  if (document.getElementById("screen")) return;
-  app.innerHTML = `
-    <div id="screen"></div>
-    <div class="card chat" id="chatBox">
-      <div class="chat-head">💬 الدردشة</div>
-      <div class="chat-list" id="chatList"></div>
-      <div class="row">
-        <input id="chatInput" placeholder="اكتب سؤالك أو جوابك..." maxlength="200" autocomplete="off">
-        <button id="chatSend" data-quiet="1">إرسال</button>
-      </div>
+  if (!document.getElementById("screen")) {
+    app.innerHTML = `<div id="screen"></div>`;
+    app.dataset.key = "online";
+  }
+  ensureChat();
+}
+
+/* ----- الدردشة العائمة (زر + لوحة تطلع من تحت) ----- */
+function ensureChat() {
+  if (document.getElementById("chatFab")) return;
+  const fab = document.createElement("button");
+  fab.id = "chatFab"; fab.className = "chat-fab"; fab.dataset.quiet = "1";
+  fab.setAttribute("aria-label", "الدردشة");
+  fab.innerHTML = `💬<span class="unread" id="chatUnread"></span>`;
+  const sheet = document.createElement("div");
+  sheet.id = "chatSheet"; sheet.className = "chat-sheet";
+  sheet.innerHTML = `
+    <div class="chat-head"><span>💬 الدردشة</span><button class="icon-btn" id="chatClose" data-quiet="1" aria-label="إغلاق">✕</button></div>
+    <div class="chat-list" id="chatList"></div>
+    <div class="row">
+      <input id="chatInput" placeholder="اكتب سؤالك أو جوابك..." maxlength="200" autocomplete="off">
+      <button id="chatSend" data-quiet="1">إرسال</button>
     </div>`;
-  app.dataset.key = "online";
+  document.body.append(fab, sheet);
+  document.body.classList.add("has-chat");
+  fab.onclick = () => toggleChat(true);
+  document.getElementById("chatClose").onclick = () => toggleChat(false);
   const input = document.getElementById("chatInput");
   const send = () => {
     const text = cleanText(input.value, 200);
@@ -414,16 +438,56 @@ function ensureLayout() {
   input.onkeydown = e => { if (e.key === "Enter") send(); };
 }
 
+function toggleChat(open) {
+  const fab = document.getElementById("chatFab"), sheet = document.getElementById("chatSheet");
+  if (!fab) return;
+  On.chatOpen = open;
+  sheet.classList.toggle("open", open);
+  fab.classList.toggle("hidden", open);
+  if (open) {
+    markChatSeen();
+    const list = document.getElementById("chatList");
+    list.scrollTop = list.scrollHeight;
+    setTimeout(() => document.getElementById("chatInput").focus(), 300);
+    SFX.pop();
+  } else SFX.hide();
+}
+
+function markChatSeen() {
+  const r = On.room;
+  On.chatSeenT = r && r.chat.length ? r.chat[r.chat.length - 1].t : Date.now();
+  updateUnread();
+}
+
+function updateUnread() {
+  const badge = document.getElementById("chatUnread");
+  if (!badge || !On.room) return;
+  const n = On.chatOpen ? 0 : On.room.chat.filter(m => m.t > (On.chatSeenT || 0) && m.id !== myId && m.id !== "sys").length;
+  badge.textContent = n > 9 ? "9+" : n;
+  badge.classList.toggle("show", n > 0);
+}
+
+function removeChat() {
+  ["chatFab", "chatSheet"].forEach(id => { const el = document.getElementById(id); if (el) el.remove(); });
+  document.body.classList.remove("has-chat");
+  On.chatOpen = false;
+}
+
 function renderChat() {
   const r = On.room, list = document.getElementById("chatList");
   if (!list) return;
+  if (On.chatSeenT == null) On.chatSeenT = r.chat.length ? r.chat[r.chat.length - 1].t : 0;
   const sig = r.chat.length ? r.chat[r.chat.length - 1].t + ":" + r.chat.length : "0";
   if (list.dataset.sig === sig) return;
   const last = r.chat[r.chat.length - 1];
   if (list.dataset.sig && last) {
     if (last.id === "sys") { if (last.text.includes("دخل")) SFX.join(); }
-    else if (last.id !== myId) SFX.message();
+    else if (last.id !== myId) {
+      SFX.message();
+      if (!On.chatOpen) { const fab = document.getElementById("chatFab"); fab.classList.remove("bump"); void fab.offsetWidth; fab.classList.add("bump"); }
+    }
   }
+  if (On.chatOpen) markChatSeen(); else updateUnread();
   list.dataset.sig = sig;
   list.innerHTML = r.chat.length
     ? r.chat.map(m => m.id === "sys"
@@ -445,7 +509,7 @@ function renderOnline() {
   renderChat();
 
   // الدردشة لها رسم منفصل، فما نعيد رسم الشاشة بسبب رسالة جديدة
-  const sig = JSON.stringify([r.phase, [...On.online].sort(), On.ui, r.players, r.waiting, r.category, r.round]);
+  const sig = JSON.stringify([r.phase, [...On.online].sort(), On.ui, r.players, r.waiting, r.categories, r.round]);
   if (sig === On.lastSig) return;
   On.lastSig = sig;
 
@@ -459,8 +523,6 @@ function renderOnline() {
     if (r.phase === "roles") On.ui.shown = false;
     Music.setMood(r.phase === "questions" || r.phase === "vote" ? "tense" : "calm");
   }
-  clearInterval(On.timerId); On.timerId = null;
-
   const me = r.players.find(p => p.id === myId);
   const isOut = rd && rd.outsiderId === myId;
 
@@ -564,7 +626,7 @@ function renderLobby(screen) {
     </div>
     <div class="card">
       <div class="card-title">📂 التصنيف</div>
-      ${H ? chipsHtml(r.category) : `<div class="chips"><span class="chip active">${catIcon(r.category)} ${esc(r.category)}</span></div>`}
+      ${chipsHtml(r.categories, !H)}
     </div>
     ${H
       ? `<button class="big" id="startBtn" ${r.players.length < 3 ? "disabled" : ""}>ابدأ الجولة 🎲</button>
@@ -575,7 +637,7 @@ function renderLobby(screen) {
   const sh = document.getElementById("shareBtn");
   if (sh) sh.onclick = () => navigator.share({ title: "مين برا السالفة؟", text: `تعال العب معنا! كود الغرفة ${r.code}`, url: shareLink(r.code) }).catch(() => {});
   if (H) {
-    screen.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { SFX.select(); Host.setCat(b.dataset.cat); });
+    screen.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { SFX.select(); Host.toggleCat(b.dataset.cat); });
     screen.querySelectorAll("[data-kick]").forEach(b => b.onclick = () => { if (confirm("تطلّع هذا اللاعب؟")) { SFX.remove(); Host.kick(b.dataset.kick); } });
     document.getElementById("startBtn").onclick = hostStart;
     const rs = document.getElementById("resetBtn");
@@ -616,37 +678,43 @@ function renderRolesOnline(screen, isOut) {
   bindPeek();
 }
 
-/* ----- الأسئلة ----- */
+/* ----- الأسئلة: سؤال واحد كل مرة ----- */
 function renderQuestionsOnline(screen, isOut) {
   const rd = On.room.round, H = On.isHost;
-  const total = QUESTION_MS / 1000;
-  paintEl(screen, "questions-" + rd.n + "." + rd.q, `
-    <div class="title"><span class="wiggle">❓</span> وقت الأسئلة</div>
-    ${catPillOnline(rd.cat)}
-    ${timerHtml()}
-    <p class="hint" style="margin:0 0 12px">كل واحد يسأل اللي بعده سؤال عن السالفة، بالدردشة أو بالصوت</p>
-    ${pairsHtml(rd.pairs, nameOf)}
-    ${peekHtml(isOut)}
-    ${H
-      ? `<button class="big ghost" id="reshuffle">أسئلة جولة ثانية 🔄</button>
-         <button class="big" id="voteBtn">يلا نصوّت 🗳️</button>`
-      : `<p class="hint">صاحب الغرفة يبدأ التصويت لما تخلصون</p>`}`);
-  const tick = first => {
-    const s = Math.ceil((rd.endsAt - Date.now()) / 1000);
-    if (!updateTimer(s, total)) return;
-    if (s > 0) { if (!first && s <= 10) { SFX.tick(); if (s <= 5) SFX.heartbeat(); } }
-    else {
-      const key = rd.n + "." + rd.q;
-      if (On.ui.timeUpFor !== key) { On.ui.timeUpFor = key; SFX.timeUp(); }
-      clearInterval(On.timerId); On.timerId = null;
+  const qi = rd.qi || 0;
+  if (qi >= rd.pairs.length) {
+    const key = "qdone-" + rd.n + "." + rd.q;
+    if (On.lastQ !== key) { On.lastQ = key; SFX.pop(); }
+    paintEl(screen, key, `
+      ${qDoneHtml()}
+      ${peekHtml(isOut)}
+      ${H
+        ? `<button class="big ghost" id="reshuffle">أسئلة جولة ثانية 🔄</button>
+           <button class="big" id="voteBtn">يلا نصوّت 🗳️</button>`
+        : `<p class="hint">صاحب الغرفة يقرر 👑</p>`}`);
+    if (H) {
+      document.getElementById("reshuffle").onclick = () => { SFX.whoosh(); Host.reshuffle(); };
+      document.getElementById("voteBtn").onclick = Host.toVote;
     }
-  };
-  tick(true);
-  On.timerId = setInterval(() => tick(false), 1000);
-  if (H) {
-    document.getElementById("reshuffle").onclick = Host.reshuffle;
-    document.getElementById("voteBtn").onclick = Host.toVote;
+    bindPeek();
+    return;
   }
+  const [a, b] = rd.pairs[qi];
+  const canNext = H || a === myId || b === myId;
+  const key = "q-" + rd.n + "." + rd.q + "." + qi;
+  if (On.lastQ !== key) { On.lastQ = key; SFX.whoosh(); setTimeout(SFX.pop, 450); if (a === myId) vibrate(150); }
+  paintEl(screen, key, `
+    ${questionHtml({ cat: rd.cat, round: rd.n, i: qi, total: rd.pairs.length, a: { key: a, name: nameOf(a) }, b: { key: b, name: nameOf(b) } })}
+    ${a === myId ? `<p class="hint you">دورك تسأل! 🎤</p>` : b === myId ? `<p class="hint you">جهّز جوابك 🤔</p>` : ""}
+    ${canNext
+      ? `<button class="big" id="nextQ" data-quiet="1">خلصنا ✔️</button>`
+      : `<p class="hint">بالدردشة أو بالصوت، ولما يخلصون يضغطون "خلصنا"</p>`}
+    ${H ? `<button class="big ghost" id="voteNow">يلا نصوّت على طول 🗳️</button>` : ""}
+    ${peekHtml(isOut)}`);
+  const nb = document.getElementById("nextQ");
+  if (nb) nb.onclick = () => { SFX.select(); nb.disabled = true; sendAction({ type: "next", qi }); };
+  const vn = document.getElementById("voteNow");
+  if (vn) vn.onclick = Host.toVote;
   bindPeek();
 }
 

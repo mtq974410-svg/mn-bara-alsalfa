@@ -18,6 +18,8 @@ const app = document.getElementById("app");
 function paintEl(el, key, html) {
   el.innerHTML = html;
   const changed = el.dataset.key !== key;
+  // نفس الشاشة انرسمت من جديد (تحديث بيانات): لا نعيد أنيميشن الدخول
+  el.classList.toggle("static", !changed);
   if (changed) {
     el.classList.remove("enter"); void el.offsetWidth; el.classList.add("enter");
     el.dataset.key = key;
@@ -396,27 +398,54 @@ function roleCardHtml(isOut, word, emoji) {
     </div>`;
 }
 
-// مؤقت دائري
-const RING_C = 2 * Math.PI * 52;
-function timerHtml() {
-  return `
-    <div class="ring-wrap" id="ringWrap">
-      <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
-        <defs><linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs>
-        <circle class="ring-track" cx="60" cy="60" r="52"/>
-        <circle class="ring-prog" id="ringProg" cx="60" cy="60" r="52" style="stroke-dasharray:${RING_C};stroke-dashoffset:0"/>
-      </svg>
-      <div class="ring-txt" id="timer">3:00</div>
-    </div>`;
+/* ----- اختيار أكثر من تصنيف (قائمة فاضية = عشوائي من الكل) ----- */
+function validCats(list) { return Array.isArray(list) ? list.filter(c => CATEGORIES[c]) : []; }
+function toggleCat(list, c) {
+  if (c === RANDOM || !CATEGORIES[c]) return [];
+  const next = list.includes(c) ? list.filter(x => x !== c) : list.concat(c);
+  return next.length === Object.keys(CATEGORIES).length ? [] : next;
 }
-function updateTimer(sec, total) {
-  const t = document.getElementById("timer"), p = document.getElementById("ringProg"), w = document.getElementById("ringWrap");
-  if (!t || !p) return false;
-  p.style.strokeDashoffset = RING_C * (1 - Math.max(0, sec) / total);
-  t.textContent = sec > 0 ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : "⏰";
-  w.classList.toggle("hurry", sec > 0 && sec <= 10);
-  w.classList.toggle("done", sec <= 0);
-  return true;
+function pickCat(list) {
+  const pool = validCats(list).length ? validCats(list) : Object.keys(CATEGORIES);
+  return pool[rand(pool.length)];
+}
+function catsLabel(list) {
+  return list.length ? `${list.length} تصنيفات، واللعبة تختار منها كل جولة` : "اللعبة تختار تصنيف عشوائي كل جولة";
+}
+function chipsHtml(selected, readOnly = false) {
+  const all = [RANDOM, ...Object.keys(CATEGORIES)];
+  const isOn = c => c === RANDOM ? selected.length === 0 : selected.includes(c);
+  const shown = readOnly ? all.filter(isOn) : all;
+  return `
+    <div class="chips">${shown.map(c => readOnly
+      ? `<span class="chip active">${catIcon(c)} ${esc(c)}</span>`
+      : `<button class="chip ${isOn(c) ? "active" : ""}" data-cat="${esc(c)}" data-quiet="1">${isOn(c) && c !== RANDOM ? "✓ " : ""}${catIcon(c)} ${esc(c)}</button>`).join("")}</div>
+    <p class="hint" style="text-align:right">${selected.length === 1 ? "تصنيف واحد" : catsLabel(selected)}</p>`;
+}
+
+/* ----- شاشة السؤال: سؤال واحد كل مرة ----- */
+function questionHtml({ cat, round, i, total, a, b }) {
+  return `
+    <div class="q-head">
+      <span class="pill">${CATEGORIES[cat].icon} ${esc(cat)}</span>
+      <span class="pill">الجولة ${round}</span>
+    </div>
+    <div class="q-stage">
+      <div class="q-count">السؤال ${i + 1} من ${total}</div>
+      <div class="q-person asker">${avatar(a.key, "xxl")}<span class="name-tag">${esc(a.name)}</span></div>
+      <div class="q-asks">يسأل</div>
+      <svg class="q-arrow" viewBox="0 0 24 44" aria-hidden="true"><path d="M12 3v34M4 28l8 10 8-10"/></svg>
+      <div class="q-person target">${avatar(b.key, "xxl")}<span class="name-tag">${esc(b.name)}</span></div>
+    </div>
+    <div class="q-progress"><div style="--w:${((i + 1) / total) * 100}%"></div></div>`;
+}
+function qDoneHtml() {
+  return `
+    <div class="card status-big">
+      <div class="big-emoji float">✅</div>
+      <div class="title">خلصت الأسئلة</div>
+      <p class="hint">تبون جولة أسئلة ثانية ولا نصوّت؟</p>
+    </div>`;
 }
 
 function suspenseHtml() {
