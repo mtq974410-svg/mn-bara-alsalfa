@@ -105,8 +105,8 @@ function renderReveal() {
       <p class="hint">${state.turn + 1} من ${state.players.length}</p>`);
     document.getElementById("showBtn").onclick = () => {
       state.shown = true;
-      if (isOut) { SFX.outsider(); vibrate([120, 60, 120]); } else SFX.reveal();
-      renderReveal();
+      renderReveal();          // نرسم الكرت أول، وبعدين الصوت
+      SFX.cardReveal();        // نفس الصوت للكل
     };
   } else {
     paint("role-" + state.turn, `

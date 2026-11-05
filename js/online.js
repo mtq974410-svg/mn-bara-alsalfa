@@ -12,6 +12,8 @@ const PID_KEY = "bara_pid";
 const NAME_KEY = "bara_name";
 const HOST_PREFIX = "bara_host_";
 const MAX_PLAYERS = 12;
+// رقم نسخة الغرفة: لو صاحب الغرفة واللاعب عندهم نسخ مختلفة من اللعبة نطلب منهم تحديث الصفحة
+const ROOM_VERSION = 10;
 
 const myId = LS.get(PID_KEY) || (() => {
   const id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2);
@@ -124,7 +126,7 @@ function renderNameForRoom(code) {
 function createRoom() {
   const code = String(1000 + rand(9000));
   On.isHost = true;
-  On.room = { code, hostId: myId, phase: "lobby", categories: loadCats(), players: [{ id: myId, name: myName(), score: 0 }], waiting: [], round: null, chat: [], seq: 1 };
+  On.room = { v: ROOM_VERSION, code, hostId: myId, phase: "lobby", categories: loadCats(), players: [{ id: myId, name: myName(), score: 0 }], waiting: [], round: null, chat: [], seq: 1 };
   sysChat(`${myName()} سوّى الغرفة 🎉`);
   saveHost();
   connect(code);
@@ -135,6 +137,7 @@ function joinRoom(code) {
   try { saved = JSON.parse(LS.get(HOST_PREFIX + code)); } catch {}
   if (saved && saved.hostId === myId) {
     saved.categories = validCats(saved.categories);   // غرف محفوظة من نسخة قديمة
+    saved.v = ROOM_VERSION;
     On.isHost = true; On.room = saved;
   }
   else { On.isHost = false; On.room = null; }
@@ -217,6 +220,11 @@ document.addEventListener("visibilitychange", () => {
 
 /* ---------- جهة اللاعب: استقبال الحالة ---------- */
 function receiveState(r) {
+  if (r && typeof r === "object" && r.code === On.code && r.v !== ROOM_VERSION) {
+    leaveChannel();
+    renderError("نسخة اللعبة عندك تختلف عن نسخة صاحب الغرفة 🔄", "خلّ الكل يسوي تحديث للصفحة (Ctrl + Shift + R أو اسحب الصفحة لتحت في الجوال) وادخلوا مرة ثانية.");
+    return;
+  }
   if (!r || typeof r !== "object" || !Array.isArray(r.players) || !Array.isArray(r.waiting) || !Array.isArray(r.chat) || r.code !== On.code) return;
   if (!Array.isArray(r.categories) || r.categories.some(c => !CATEGORIES[c])) return;
   if (r.round && (!Array.isArray(r.round.pairs) || !r.round.pairs.every(p => Array.isArray(p) && p.length === 2))) return;
@@ -582,7 +590,7 @@ function peekHtml(isOut) {
 }
 function bindPeek() {
   const b = document.getElementById("peekBtn");
-  if (b) b.onclick = () => { On.ui.peek = !On.ui.peek; On.ui.peek ? SFX.flip() : SFX.hide(); renderOnline(); };
+  if (b) b.onclick = () => { On.ui.peek = !On.ui.peek; renderOnline(); On.ui.peek ? SFX.cardReveal() : SFX.hide(); };
 }
 
 function pendingHtml(doneMap, label) {
@@ -672,7 +680,7 @@ function renderRolesOnline(screen, isOut) {
     ${body}
     ${H && ready ? `<button class="big ghost" id="skipBtn">كمّل بدون الباقين ⏭️</button>` : ""}`);
   const s = document.getElementById("showBtn");
-  if (s) s.onclick = () => { On.ui.shown = true; if (isOut) { SFX.outsider(); vibrate([120, 60, 120]); } else SFX.reveal(); renderOnline(); };
+  if (s) s.onclick = () => { On.ui.shown = true; renderOnline(); SFX.cardReveal(); };
   const rb = document.getElementById("readyBtn");
   if (rb) rb.onclick = () => { SFX.hide(); rb.disabled = true; sendAction({ type: "ready" }); };
   const sk = document.getElementById("skipBtn");

@@ -24,6 +24,9 @@ function paintEl(el, key, html) {
     el.classList.remove("enter"); void el.offsetWidth; el.classList.add("enter");
     el.dataset.key = key;
     window.scrollTo(0, 0);
+    // أمان: لو المتصفح وقّف الأنيميشن (جهاز بطيء أو تبويب بالخلفية) ما تبقى الشاشة مخفية
+    clearTimeout(el._settle);
+    el._settle = setTimeout(() => { if (el.dataset.key === key) { el.classList.remove("enter"); el.classList.add("static"); } }, 2500);
   }
   animateCounts(el, changed);
 }
@@ -107,7 +110,9 @@ const Sound = {
   // نغمة بمغلف صوتي، ممكن تكون عدة مذبذبات مع detune وفلتر واهتزاز
   voice(freq, dur, o = {}) {
     if (!this.allowed(o)) return;
-    const c = AudioEngine.init(); if (!c) return;
+    let c = null;
+    try { c = AudioEngine.init(); } catch (e) { return; }
+    if (!c) return;
     const { type = "sine", vol = 0.15, delay = 0, attack = 0.008, slide = 0, detune = 0, voices = 1, cutoff = 0, vibrato = 0 } = o;
     const t = o.at != null ? o.at : c.currentTime + delay;
     const rel = dur;
@@ -138,7 +143,9 @@ const Sound = {
   // ضوضاء مفلترة (للووش، الطبول، الصنج...)
   noise(dur, o = {}) {
     if (!this.allowed(o)) return;
-    const c = AudioEngine.init(); if (!c) return;
+    let c = null;
+    try { c = AudioEngine.init(); } catch (e) { return; }
+    if (!c) return;
     const { vol = 0.15, delay = 0, freq = 1000, to = 0, q = 1, type = "bandpass", attack = 0.005 } = o;
     const t = o.at != null ? o.at : c.currentTime + delay;
     const len = Math.max(1, Math.floor(c.sampleRate * dur));
@@ -211,10 +218,17 @@ const SFX = {
     [[58, 0, 0.32], [57, 0.36, 0.32], [56, 0.72, 0.32]].forEach(([m, d, l]) => Sound.voice(N(m), l, { type: "sawtooth", voices: 2, detune: 10, cutoff: 1000, vol: 0.08, delay: d, attack: 0.03 }));
     Sound.voice(N(55), 1.1, { type: "sawtooth", voices: 2, detune: 10, cutoff: 1000, vol: 0.08, delay: 1.08, attack: 0.03, vibrato: 6 });
   },
+  // صوت كشف الكرت: واحد للكل، سواء أنت برا السالفة أو لا
+  cardReveal: () => { SFX.flip(); [79, 84, 88].forEach((m, i) => bell(m, 0.2 + i * 0.08, 0.06)); },
   correct:  () => { [72, 76, 79, 84, 88].forEach((m, i) => bell(m, i * 0.06, 0.08)); setTimeout(SFX.coin, 380); },
   wrong:    () => { Sound.voice(110, 0.5, { type: "square", voices: 2, detune: 40, cutoff: 900, vol: 0.08 }); Sound.voice(104, 0.5, { type: "square", cutoff: 700, vol: 0.05, delay: 0.05 }); },
   win:      () => { brass([67, 71, 74], 0, 0.14); brass([72, 76, 79], 0.16, 0.9, 0.05); [91, 96].forEach((m, i) => bell(m, 0.2 + i * 0.1, 0.05)); }
 };
+// الصوت ما يوقف اللعبة أبداً: لو صار أي خطأ في الصوت نتجاهله
+Object.keys(SFX).forEach(k => {
+  const fn = SFX[k];
+  SFX[k] = (...a) => { try { fn(...a); } catch (e) { console.warn("sfx", k, e); } };
+});
 
 /* ============================================================
    موسيقى خلفية مولّدة (هادئة / متوترة)
@@ -225,7 +239,9 @@ const Music = {
   LEVEL: 0.5,
   start() {
     if (!this.on || this.timer) return;
-    const c = AudioEngine.init(); if (!c) return;
+    let c = null;
+    try { c = AudioEngine.init(); } catch (e) { console.warn("audio", e); }
+    if (!c) return;
     this.fadeTo(this.LEVEL, 2);
     this.next = c.currentTime + 0.1; this.step = 0;
     this.timer = setInterval(() => this.schedule(), 100);
@@ -244,6 +260,9 @@ const Music = {
   },
   setMood(m) { this.mood = m; },
   schedule() {
+    try { this.scheduleInner(); } catch (e) { console.warn("music", e); this.stop(); }
+  },
+  scheduleInner() {
     const c = AudioEngine.ctx; if (!c) return;
     const bpm = this.mood === "tense" ? 108 : 88;
     const eighth = 60 / bpm / 2;
@@ -400,14 +419,14 @@ function posterHtml(url, emoji, cls = "") {
     </div>`;
 }
 
-// كرت الدور: يبدأ مقلوب وينقلب ثلاثي الأبعاد
+// كرت الدور: وجه واحد يلف ويطلع (بدون حيل الوجهين، عشان يشتغل على كل المتصفحات).
+// نفس اللون للكل، عشان اللي جنبك ما يعرف من لون الشاشة إنك برا السالفة.
 function roleCardHtml(isOut, word, emoji, poster = "") {
   const withPoster = !isOut && poster;
   return `
     <div class="flip-card">
       <div class="flip-inner ${withPoster ? "has-poster" : ""}">
-        <div class="face back-face"><div class="card-mark">؟</div></div>
-        <div class="face front-face ${isOut ? "is-out" : "is-word"}">
+        <div class="face front-face">
           ${isOut
             ? `<div class="big-emoji wiggle">🕵️</div>
                <div class="role-title">أنت برا السالفة</div>
