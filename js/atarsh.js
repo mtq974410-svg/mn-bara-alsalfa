@@ -156,9 +156,12 @@ function renderAtarshSetup(spun) {
       () => renderAtarshSetup());
   });
   if (spun >= 0) { const b = app.querySelector(`[data-atav="${spun}"]`); if (b) b.classList.add("spin-once"); }
-  app.querySelectorAll("[data-atcat]").forEach(b => b.onclick = () => {
+  const chipsDiv = app.querySelector('.chips');
+  if (chipsDiv) chipsDiv.onclick = e => {
+    const b = e.target.closest('[data-atcat]');
+    if (!b) return;
     SFX.select(); atState.cats = atToggleCat(atState.cats, b.dataset.atcat); atSaveCats(atState.cats); renderAtarshSetup();
-  });
+  };
   document.getElementById("at-startRound").onclick = startAtarshRound;
   document.getElementById("at-back").onclick = renderGame2Home;
   const r = document.getElementById("at-resetBtn");
@@ -223,7 +226,7 @@ function renderAtarshReveal() {
         <div class="atarsh-q-label">سؤالك الخاص 🔒</div>
         <div class="atarsh-q-text">${esc(q)}</div>
       </div>
-      <textarea id="answerInput" class="answer-input" placeholder="اكتب إجابتك هنا..." maxlength="100" rows="3"></textarea>
+      <textarea id="answerInput" class="answer-input" placeholder="اكتب إجابتك هنا..." maxlength="100" rows="3" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
       <button class="big" id="at-saveBtn" data-quiet="1">تمام، خبّيها ✔️</button>
       <p class="hint">إجابتك ستُعرض للكل بعد ما يكمل الجميع</p>
     `);
