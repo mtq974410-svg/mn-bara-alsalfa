@@ -174,7 +174,7 @@ function startAtarshRound() {
   atState.majorityQ = mq;
   atState.deafQ = dq;
   atState.deafIdx = pickOutsider(atState.players, atState.outsiderHistory);
-  updateOutsiderHistory(atState.outsiderHistory, atState.deafIdx, Math.min(5, atState.players.length - 1));
+  updateOutsiderHistory(atState.outsiderHistory, atState.players[atState.deafIdx].name, Math.min(5, atState.players.length - 1));
   atState.roundNo++;
   atState.turn = 0;
   atState.shown = false;
@@ -396,10 +396,12 @@ function finishAtarshRound() {
     </div>
     <button class="big" id="at-againBtn" data-quiet="1">جولة جديدة 🎲</button>
     <button class="big ghost" id="at-setupBtn">الإعدادات ⚙️</button>
+    <button class="big ghost" id="at-homeBtn2">الرئيسية 🏠</button>
   `);
   SFX.win();
   playCoins(notes.length);
   setTimeout(() => burstFrom(document.querySelector(".p1 .av"), 50, ["👑", "⭐"]), 900);
   document.getElementById("at-againBtn").onclick = startAtarshRound;
   document.getElementById("at-setupBtn").onclick = renderAtarshSetup;
+  document.getElementById("at-homeBtn2").onclick = renderHome;
 }

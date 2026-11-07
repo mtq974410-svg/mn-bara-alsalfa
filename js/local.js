@@ -95,7 +95,7 @@ function startRound() {
   preloadPoster(state.roundCat, state.word);
   state.outsider = pickOutsider(state.players, state.outsiderHistory);
   const maxHistory = Math.min(5, state.players.length - 1);
-  updateOutsiderHistory(state.outsiderHistory, state.outsider, maxHistory);
+  updateOutsiderHistory(state.outsiderHistory, state.players[state.outsider].name, maxHistory);
   state.turn = 0; state.shown = false; state.votes = [];
   setFloaters([CATEGORIES[state.roundCat].icon, "❓", "🤔", "🕵️"]);
   renderReveal();

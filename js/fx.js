@@ -636,7 +636,7 @@ updateAudioBtns();
 function pickOutsider(players, history) {
   const n = players.length;
   const weights = players.map((_, i) => {
-    const key = typeof players[i] === "object" ? players[i].id : i;
+    const key = typeof players[i] === "object" ? (players[i].id != null ? players[i].id : players[i].name != null ? players[i].name : i) : i;
     const pos = history.lastIndexOf(key);
     if (pos === -1) return 1.0;
     const ago = history.length - pos;
