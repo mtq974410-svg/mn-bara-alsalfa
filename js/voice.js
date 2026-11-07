@@ -16,16 +16,28 @@ const Voice = {
 
   supported() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.RTCPeerConnection); },
   meta() { return { voice: this.on, muted: this.muted }; },
-  track() { if (On.ch) On.ch.track(this.meta()).catch(() => {}); },
+  _ch() {
+    if (typeof AtOn !== "undefined" && AtOn.ch) return AtOn.ch;
+    return On.ch;
+  },
+  _pkOf(id) {
+    if (typeof AtOn !== "undefined" && AtOn.room) {
+      const r = AtOn.room;
+      const p = r.players.concat(r.waiting).find(x => x.id === id);
+      if (p && p.pk) return p.pk;
+    }
+    return pkOf(id);
+  },
+  track() { const ch = this._ch(); if (ch) ch.track(this.meta()).catch(() => {}); },
   // رسائل الاتصال: "join" العامة بدون محتوى، والباقي مشفر بيني وبين الشخص نفسه
   send(msg, to = null) {
-    const ch = On.ch;
+    const ch = this._ch();
     if (!ch) return;
     if (!to) { if (msg.type === "join") ch.send({ type: "broadcast", event: "rtc", payload: { type: "join", from: myId } }); return; }
-    const pk = pkOf(to);
+    const pk = this._pkOf(to);
     if (!pk) return;
     Sec.pairKey(pk).then(k => Sec.seal(k, msg)).then(box => {
-      if (ch === On.ch) ch.send({ type: "broadcast", event: "rtc", payload: { from: myId, to, box } });
+      if (ch === this._ch()) ch.send({ type: "broadcast", event: "rtc", payload: { from: myId, to, box } });
     }).catch(e => console.warn("voice send", e));
   },
 
@@ -120,7 +132,7 @@ const Voice = {
     if (!this.on || !raw || typeof raw !== "object" || typeof raw.from !== "string" || raw.from === myId) return;
     if (raw.to && raw.to !== myId) return;
     // نقبل بس من لاعبين داخل الغرفة، والرسائل الخاصة لازم تنفك بمفتاحنا المشترك
-    const pk = pkOf(raw.from);
+    const pk = this._pkOf(raw.from);
     if (!pk) return;
     let p;
     if (raw.box) {

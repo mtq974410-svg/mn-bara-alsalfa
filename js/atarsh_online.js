@@ -901,7 +901,12 @@ function atRenderLobby(screen) {
   const sh = document.getElementById("atShareBtn");
   if (sh) sh.onclick = () => navigator.share({ title: "مين الأطرش بالزفة؟", text: `تعال العب معنا! كود الغرفة ${r.code}`, url: atShareLink(r.code) }).catch(() => {});
   if (H) {
-    screen.querySelectorAll("[data-atcat]").forEach(b => b.onclick = () => { SFX.select(); AtHost.toggleCat(b.dataset.atcat); });
+    const chipsDiv = screen.querySelector('.chips');
+    if (chipsDiv) chipsDiv.onclick = e => {
+      const b = e.target.closest('[data-atcat]');
+      if (!b) return;
+      SFX.select(); AtHost.toggleCat(b.dataset.atcat);
+    };
     screen.querySelectorAll("[data-atkick]").forEach(b => b.onclick = () => { if (confirm("تطلّع هذا اللاعب؟")) { SFX.remove(); AtHost.kick(b.dataset.atkick); } });
     const sb = document.getElementById("atStartBtn");
     if (sb) sb.onclick = AtHost.start;
@@ -922,6 +927,8 @@ function atRenderAnswers(screen) {
     : (AtOn.myRole && AtOn.myRole.q ? AtOn.myRole.q : null);
 
   if (!answered) {
+    // لو المستخدم شغال يكتب إجابته، ما نعيد رسم الشاشة
+    if (document.getElementById("atAnswerInput")) return;
     paintEl(screen, "at-answers-" + rd.n, `
       <div class="card center"><div class="muted">🥁 الجولة ${rd.n} — ${esc(rd.cat)}</div></div>
       ${myQ
@@ -931,7 +938,7 @@ function atRenderAnswers(screen) {
            </div>`
         : `<div class="card center"><span class="spin">⏳</span><p class="hint">جاري استلام سؤالك...</p></div>`}
       ${myQ ? `
-        <textarea id="atAnswerInput" class="answer-input" placeholder="اكتب إجابتك هنا..." maxlength="100" rows="3">${esc(AtOn.myAnswer || "")}</textarea>
+        <textarea id="atAnswerInput" class="answer-input" placeholder="اكتب إجابتك هنا..." maxlength="100" rows="3" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">${esc(AtOn.myAnswer || "")}</textarea>
         <button class="big" id="atSubmitAnswer" data-quiet="1" style="background:linear-gradient(135deg,var(--gold),var(--orange))">تمام، أرسل إجابتك ✔️</button>
         <p class="hint">إجابتك ستُعرض للكل بعد ما يكمل الجميع</p>
       ` : ""}
