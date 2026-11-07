@@ -26,7 +26,17 @@ const Voice = {
       const p = r.players.concat(r.waiting).find(x => x.id === id);
       if (p && p.pk) return p.pk;
     }
-    return pkOf(id);
+    if (typeof pkOf !== "undefined") return pkOf(id);
+    return null;
+  },
+  _nameOf(id) {
+    if (typeof AtOn !== "undefined" && AtOn.room) {
+      const r = AtOn.room;
+      const p = r.players.concat(r.waiting).find(x => x.id === id);
+      if (p) return p.name;
+    }
+    if (typeof nameOf !== "undefined") return nameOf(id);
+    return "لاعب";
   },
   track() { const ch = this._ch(); if (ch) ch.track(this.meta()).catch(() => {}); },
   // رسائل الاتصال: "join" العامة بدون محتوى، والباقي مشفر بيني وبين الشخص نفسه
@@ -108,7 +118,7 @@ const Voice = {
     };
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected") entry.ok = true;
-      if (pc.connectionState === "failed" && !entry.ok && !entry.warned) { entry.warned = true; toast(`نحاول نوصل صوت ${nameOf(id)}... 🔄`); }
+      if (pc.connectionState === "failed" && !entry.ok && !entry.warned) { entry.warned = true; toast(`نحاول نوصل صوت ${this._nameOf(id)}... 🔄`); }
     };
     return entry;
   },
