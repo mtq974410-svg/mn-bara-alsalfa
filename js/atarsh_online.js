@@ -504,6 +504,7 @@ function atHostHandle(a) {
       if (!rd || !p || a.target === from) return;
       if (!r.players.some(x => x.id === a.target)) return;
       rd.votes = rd.votes || {};
+      if (rd.votes[from]) return;   // صوت مسبق: نرفض التغيير
       rd.votes[from] = a.target;
       if (r.players.every(x => rd.votes[x.id])) {
         atTally();
