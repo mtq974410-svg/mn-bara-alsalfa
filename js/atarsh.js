@@ -13,6 +13,20 @@ let atState = {
   outsiderHistory: [], lastNew: -1
 };
 
+// Global event listener للفئات - يشتغل مع أي شاشة فيها chips
+document.addEventListener('click', function(e) {
+  const chip = e.target.closest('.chip[data-atcat]');
+  if (!chip) return;
+  // التأكد إننا في شاشة الإعداد
+  if (!app.innerHTML.includes('atarsh-setup')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  SFX.select();
+  atState.cats = atToggleCat(atState.cats, chip.dataset.atcat);
+  atSaveCats(atState.cats);
+  renderAtarshSetup();
+});
+
 /* ---------- مساعدات البيانات ---------- */
 function atLoadPlayers() {
   try { return JSON.parse(LS.get(AT_STORE_KEY)) || []; } catch { return []; }
@@ -161,18 +175,6 @@ function renderAtarshSetup(spun) {
       () => renderAtarshSetup());
   });
   if (spun >= 0) { const b = app.querySelector(`[data-atav="${spun}"]`); if (b) b.classList.add("spin-once"); }
-  
-  // ربط حدث الضغط على الفئات
-  app.addEventListener('click', function atCatHandler(e) {
-    const chip = e.target.closest('.chip[data-atcat]');
-    if (!chip) return;
-    e.preventDefault();
-    e.stopPropagation();
-    SFX.select();
-    atState.cats = atToggleCat(atState.cats, chip.dataset.atcat);
-    atSaveCats(atState.cats);
-    renderAtarshSetup();
-  });
   
   document.getElementById("at-startRound").onclick = startAtarshRound;
   document.getElementById("at-back").onclick = renderGame2Home;
