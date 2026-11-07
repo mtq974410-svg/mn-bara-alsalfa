@@ -89,6 +89,7 @@ function renderGame2Home() {
     else { toast("جاري التحميل..."); }
   };
   document.getElementById("at-homeBtn").onclick = function () {
+    if (typeof leaveAtChannel !== "undefined") leaveAtChannel();
     if (typeof leaveChannel !== "undefined") leaveChannel();
     renderHome();
   };
