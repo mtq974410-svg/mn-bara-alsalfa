@@ -47,11 +47,16 @@ function atChipsHtml(selected, readOnly) {
   const all = [ATARSH_RANDOM, ...Object.keys(ATARSH_CATS)];
   const isOn = c => c === ATARSH_RANDOM ? selected.length === 0 : selected.includes(c);
   const shown = readOnly ? all.filter(isOn) : all;
-  return `
-    <div class="chips">${shown.map(c => readOnly
-      ? `<span class="chip active">${ATARSH_CATS[c] ? ATARSH_CATS[c].icon : "🎲"} ${esc(c)}</span>`
-      : `<button class="chip ${isOn(c) ? "active" : ""}" data-atcat="${esc(c)}" data-quiet="1">${isOn(c) && c !== ATARSH_RANDOM ? "✓ " : ""}${ATARSH_CATS[c] ? ATARSH_CATS[c].icon : "🎲"} ${esc(c)}</button>`).join("")}</div>
-    <p class="hint" style="text-align:right">${selected.length === 1 ? "تصنيف واحد" : atCatsLabel(selected)}</p>`;
+  const chipsHtml = shown.map(c => {
+    if (readOnly) {
+      return `<span class="chip active">${ATARSH_CATS[c] ? ATARSH_CATS[c].icon : "🎲"} ${esc(c)}</span>`;
+    }
+    const icon = ATARSH_CATS[c] ? ATARSH_CATS[c].icon : "🎲";
+    const checkmark = isOn(c) && c !== ATARSH_RANDOM ? "✓ " : "";
+    const activeClass = isOn(c) ? " active" : "";
+    return `<button type="button" class="chip${activeClass}" data-atcat="${esc(c)}" data-quiet="1">${checkmark}${icon} ${esc(c)}</button>`;
+  }).join("");
+  return `<div class="chips">${chipsHtml}</div><p class="hint" style="text-align:right">${selected.length === 1 ? "تصنيف واحد" : atCatsLabel(selected)}</p>`;
 }
 
 /* ============================================================
@@ -156,14 +161,19 @@ function renderAtarshSetup(spun) {
       () => renderAtarshSetup());
   });
   if (spun >= 0) { const b = app.querySelector(`[data-atav="${spun}"]`); if (b) b.classList.add("spin-once"); }
-  setTimeout(() => {
-    const chipsDiv = app.querySelector('.chips');
-    if (chipsDiv) chipsDiv.onclick = e => {
-      const b = e.target.closest('[data-atcat]');
-      if (!b) return;
-      SFX.select(); atState.cats = atToggleCat(atState.cats, b.dataset.atcat); atSaveCats(atState.cats); renderAtarshSetup();
-    };
-  }, 0);
+  
+  // ربط حدث الضغط على الفئات
+  app.addEventListener('click', function atCatHandler(e) {
+    const chip = e.target.closest('.chip[data-atcat]');
+    if (!chip) return;
+    e.preventDefault();
+    e.stopPropagation();
+    SFX.select();
+    atState.cats = atToggleCat(atState.cats, chip.dataset.atcat);
+    atSaveCats(atState.cats);
+    renderAtarshSetup();
+  });
+  
   document.getElementById("at-startRound").onclick = startAtarshRound;
   document.getElementById("at-back").onclick = renderGame2Home;
   const r = document.getElementById("at-resetBtn");

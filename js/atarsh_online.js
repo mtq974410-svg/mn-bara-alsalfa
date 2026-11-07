@@ -900,15 +900,18 @@ function atRenderLobby(screen) {
   };
   const sh = document.getElementById("atShareBtn");
   if (sh) sh.onclick = () => navigator.share({ title: "مين الأطرش بالزفة؟", text: `تعال العب معنا! كود الغرفة ${r.code}`, url: atShareLink(r.code) }).catch(() => {});
+  
   if (H) {
-    setTimeout(() => {
-      const chipsDiv = screen.querySelector('.chips');
-      if (chipsDiv) chipsDiv.onclick = e => {
-        const b = e.target.closest('[data-atcat]');
-        if (!b) return;
-        SFX.select(); AtHost.toggleCat(b.dataset.atcat);
-      };
-    }, 0);
+    // ربط حدث الضغط على الفئات
+    screen.addEventListener('click', function atCatHandler(e) {
+      const chip = e.target.closest('.chip[data-atcat]');
+      if (!chip) return;
+      e.preventDefault();
+      e.stopPropagation();
+      SFX.select();
+      AtHost.toggleCat(chip.dataset.atcat);
+    });
+    
     screen.querySelectorAll("[data-atkick]").forEach(b => b.onclick = () => { if (confirm("تطلّع هذا اللاعب؟")) { SFX.remove(); AtHost.kick(b.dataset.atkick); } });
     const sb = document.getElementById("atStartBtn");
     if (sb) sb.onclick = AtHost.start;
