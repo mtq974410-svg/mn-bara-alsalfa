@@ -902,14 +902,14 @@ function atRenderLobby(screen) {
   if (sh) sh.onclick = () => navigator.share({ title: "مين الأطرش بالزفة؟", text: `تعال العب معنا! كود الغرفة ${r.code}`, url: atShareLink(r.code) }).catch(() => {});
   
   if (H) {
-    // ربط حدث الضغط على الفئات
-    screen.addEventListener('click', function atCatHandler(e) {
-      const chip = e.target.closest('.chip[data-atcat]');
-      if (!chip) return;
-      e.preventDefault();
-      e.stopPropagation();
-      SFX.select();
-      AtHost.toggleCat(chip.dataset.atcat);
+    // ربط حدث الضغط على الفئات - نستخدم querySelectorAll بعد الرسم
+    screen.querySelectorAll('.chip[data-atcat]').forEach(chip => {
+      chip.onclick = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        SFX.select();
+        AtHost.toggleCat(this.dataset.atcat);
+      };
     });
     
     screen.querySelectorAll("[data-atkick]").forEach(b => b.onclick = () => { if (confirm("تطلّع هذا اللاعب؟")) { SFX.remove(); AtHost.kick(b.dataset.atkick); } });

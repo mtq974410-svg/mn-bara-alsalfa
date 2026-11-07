@@ -162,16 +162,16 @@ function renderAtarshSetup(spun) {
   });
   if (spun >= 0) { const b = app.querySelector(`[data-atav="${spun}"]`); if (b) b.classList.add("spin-once"); }
   
-  // ربط حدث الضغط على الفئات
-  app.addEventListener('click', function atCatHandler(e) {
-    const chip = e.target.closest('.chip[data-atcat]');
-    if (!chip) return;
-    e.preventDefault();
-    e.stopPropagation();
-    SFX.select();
-    atState.cats = atToggleCat(atState.cats, chip.dataset.atcat);
-    atSaveCats(atState.cats);
-    renderAtarshSetup();
+  // ربط حدث الضغط على الفئات - نستخدم querySelectorAll بعد الرسم
+  app.querySelectorAll('.chip[data-atcat]').forEach(chip => {
+    chip.onclick = function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      SFX.select();
+      atState.cats = atToggleCat(atState.cats, this.dataset.atcat);
+      atSaveCats(atState.cats);
+      renderAtarshSetup();
+    };
   });
   
   document.getElementById("at-startRound").onclick = startAtarshRound;
