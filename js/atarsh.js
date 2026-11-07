@@ -156,12 +156,14 @@ function renderAtarshSetup(spun) {
       () => renderAtarshSetup());
   });
   if (spun >= 0) { const b = app.querySelector(`[data-atav="${spun}"]`); if (b) b.classList.add("spin-once"); }
-  const chipsDiv = app.querySelector('.chips');
-  if (chipsDiv) chipsDiv.onclick = e => {
-    const b = e.target.closest('[data-atcat]');
-    if (!b) return;
-    SFX.select(); atState.cats = atToggleCat(atState.cats, b.dataset.atcat); atSaveCats(atState.cats); renderAtarshSetup();
-  };
+  setTimeout(() => {
+    const chipsDiv = app.querySelector('.chips');
+    if (chipsDiv) chipsDiv.onclick = e => {
+      const b = e.target.closest('[data-atcat]');
+      if (!b) return;
+      SFX.select(); atState.cats = atToggleCat(atState.cats, b.dataset.atcat); atSaveCats(atState.cats); renderAtarshSetup();
+    };
+  }, 0);
   document.getElementById("at-startRound").onclick = startAtarshRound;
   document.getElementById("at-back").onclick = renderGame2Home;
   const r = document.getElementById("at-resetBtn");
