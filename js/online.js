@@ -74,6 +74,7 @@ function codeTiles(code) { return `<div class="room-code">${[...code].map((d, i)
 /* ---------- الشاشة الرئيسية: اختيار اللعبة ---------- */
 function renderHome() {
   if (typeof leaveChannel !== "undefined") leaveChannel();
+  if (typeof leaveAtChannel !== "undefined") leaveAtChannel();
   Music.setMood("calm");
   history.replaceState(null, "", location.pathname);
   setFloaters(["🕵️", "🥁", "🎺", "🤫", "🎵", "❓", "🎲"]);

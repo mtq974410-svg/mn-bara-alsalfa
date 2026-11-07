@@ -992,6 +992,9 @@ function atRenderDiscussion(screen) {
 // ===== شاشة التصويت =====
 function atRenderVote(screen) {
   const r = AtOn.room, rd = r.round, H = AtOn.isHost;
+  const ssVoteKey = "atarsh_vote_" + AtOn.code + "_" + rd.n;
+  // استعادة الصوت من sessionStorage عند إعادة الاتصال
+  if (!AtOn.myVote && SS.get(ssVoteKey)) AtOn.myVote = { n: rd.n, target: SS.get(ssVoteKey) };
   const voted = rd.votes && rd.votes[myId]
     ? (H ? rd.votes[myId] : (AtOn.myVote && AtOn.myVote.n === rd.n ? AtOn.myVote.target : null))
     : null;
@@ -1020,6 +1023,7 @@ function atRenderVote(screen) {
       SFX.vote();
       screen.querySelectorAll("[data-atv]").forEach(x => x.disabled = true);
       AtOn.myVote = { n: rd.n, target: b.dataset.atv };
+      SS.set(ssVoteKey, b.dataset.atv);
       atSendAction({ type: "vote", target: b.dataset.atv });
     });
     atBindLeave();
