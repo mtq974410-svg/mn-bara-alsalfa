@@ -497,3 +497,40 @@ details.how ol { margin: 10px 0 0; padding-inline-start: 22px; color: var(--mute
   .room-code { gap: 5px; }
   .room-code span { width: 40px; height: 56px; font-size: 2rem; border-radius: 12px; }
 }
+
+/* ===== لعبة مين الأطرش بالزفة؟ ===== */
+.atarsh-q-card {
+  min-height: 320px; border-radius: 28px; padding: 28px 18px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: linear-gradient(150deg, #7c4dff, #3a1c9c 60%, #22114f);
+  box-shadow: 0 20px 60px rgba(124,77,255,.45); color: #fff; margin-bottom: 14px;
+  animation: cardReveal .75s cubic-bezier(.3,1.35,.5,1) both;
+}
+.atarsh-q-text {
+  font-family: var(--display); font-size: 1.7rem; line-height: 1.4; font-weight: 400;
+  text-shadow: 0 2px 12px rgba(0,0,0,.4);
+}
+.atarsh-q-label { font-weight: 700; opacity: .8; font-size: .95rem; }
+.answer-input {
+  width: 100%; padding: 14px 16px; border-radius: 16px; min-height: 80px; resize: none;
+  background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.25); color: #fff;
+  font-family: inherit; font-size: 1.05rem; outline: none; transition: border-color .2s, box-shadow .2s;
+}
+.answer-input::placeholder { color: rgba(255,255,255,.45); }
+.answer-input:focus { border-color: var(--gold); box-shadow: 0 0 0 4px rgba(255,212,59,.2); }
+.discussion-list { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+.discussion-row {
+  display: flex; align-items: flex-start; gap: 12px; padding: 12px; border-radius: 16px;
+  background: var(--soft); border: 1px solid var(--soft);
+}
+.discussion-answer { flex: 1; }
+.discussion-answer .pname { font-weight: 700; margin-bottom: 4px; display: block; }
+.discussion-answer .ans-text { color: var(--muted); font-size: .97rem; }
+.q-compare { border-radius: 20px; overflow: hidden; margin-bottom: 14px; }
+.q-compare-row { padding: 14px 16px; }
+.q-compare-row:first-child { background: linear-gradient(135deg, rgba(34,211,238,.25), rgba(34,211,238,.1)); border-bottom: 1px solid var(--line); }
+.q-compare-row:last-child { background: linear-gradient(135deg, rgba(255,176,32,.25), rgba(255,176,32,.1)); }
+.q-compare-label { font-weight: 700; font-size: .85rem; color: var(--muted); margin-bottom: 4px; }
+.q-compare-text { font-size: 1rem; line-height: 1.5; }
+.deaf-answer-box { padding: 14px; border-radius: 16px; background: linear-gradient(135deg, rgba(255,176,32,.2), rgba(255,176,32,.05)); border: 1px solid rgba(255,176,32,.3); margin-top: 10px; }
+.deaf-answer-box .q-compare-label { color: var(--gold); }
