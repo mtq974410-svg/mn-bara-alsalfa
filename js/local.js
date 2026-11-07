@@ -9,7 +9,8 @@ let state = {
   cats: loadCats(),
   roundCat: null, word: null, emoji: null, outsider: -1, roundNo: 0,
   turn: 0, shown: false, votes: [], caught: false, guessOptions: [],
-  pairs: [], qi: 0, qset: 0, lastNew: -1
+  pairs: [], qi: 0, qset: 0, lastNew: -1,
+  outsiderHistory: []
 };
 
 function loadPlayers() { try { return JSON.parse(LS.get(STORE_KEY)) || []; } catch { return []; } }
@@ -92,7 +93,9 @@ function startRound() {
   const words = CATEGORIES[state.roundCat].words;
   [state.word, state.emoji] = words[rand(words.length)];
   preloadPoster(state.roundCat, state.word);
-  state.outsider = rand(state.players.length);
+  state.outsider = pickOutsider(state.players, state.outsiderHistory);
+  const maxHistory = Math.min(5, state.players.length - 1);
+  updateOutsiderHistory(state.outsiderHistory, state.outsider, maxHistory);
   state.turn = 0; state.shown = false; state.votes = [];
   setFloaters([CATEGORIES[state.roundCat].icon, "❓", "🤔", "🕵️"]);
   renderReveal();
