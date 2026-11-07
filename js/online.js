@@ -71,8 +71,41 @@ function cryptoError() {
 }
 function codeTiles(code) { return `<div class="room-code">${[...code].map((d, i) => `<span style="--i:${i}">${esc(d)}</span>`).join("")}</div>`; }
 
-/* ---------- الشاشة الرئيسية ---------- */
+/* ---------- الشاشة الرئيسية: اختيار اللعبة ---------- */
 function renderHome() {
+  if (typeof leaveChannel !== "undefined") leaveChannel();
+  Music.setMood("calm");
+  history.replaceState(null, "", location.pathname);
+  setFloaters(["🕵️", "🥁", "🎺", "🤫", "🎵", "❓", "🎲"]);
+  paint("picker", `
+    <div class="hero">
+      <div class="logo-badge" style="background: linear-gradient(145deg, var(--violet), var(--pink))">
+        <span class="logo-emoji">🎉</span>
+      </div>
+      <h1 class="logo">جلسة</h1>
+      <p class="tagline">اختار لعبة وابدأ السهرة 🎲</p>
+    </div>
+    <div class="game-picker-cards">
+      <div class="game-card">
+        <div class="game-card-icon">🕵️</div>
+        <div class="game-card-title">مين برا السالفة؟</div>
+        <p class="game-card-tagline">لعبة الشك والضحك</p>
+        <button class="big" id="pickGame1Btn" data-quiet="1">العب الآن ➜</button>
+      </div>
+      <div class="game-card">
+        <div class="game-card-icon">🥁</div>
+        <div class="game-card-title">مين الأطرش بالزفة؟</div>
+        <p class="game-card-tagline">لعبة الأسئلة المزدوجة</p>
+        <button class="big" id="pickGame2Btn" data-quiet="1" style="background: linear-gradient(135deg, var(--gold), var(--orange))">العب الآن ➜</button>
+      </div>
+    </div>
+  `);
+  document.getElementById("pickGame1Btn").onclick = () => { SFX.select(); renderGame1Home(); };
+  document.getElementById("pickGame2Btn").onclick = () => { SFX.select(); renderGame2Home(); };
+}
+
+/* ---------- لعبة مين برا السالفة؟ ---------- */
+function renderGame1Home() {
   leaveChannel();
   Music.setMood("calm");
   history.replaceState(null, "", location.pathname);
@@ -97,6 +130,7 @@ function renderHome() {
       </div>
     </div>
     <button class="big ghost" id="localBtn">📱 العب على جوال واحد</button>
+    <button class="big ghost" id="pickerBtn">الرئيسية 🏠</button>
     <details class="card how" style="margin-top:14px">
       <summary>📖 طريقة اللعب</summary>
       <ol>
@@ -125,6 +159,7 @@ function renderHome() {
   codeEl.oninput = () => { codeEl.value = codeEl.value.replace(/\D/g, "").slice(0, CODE_LEN); };
   codeEl.onkeydown = e => { if (e.key === "Enter") join(); };
   document.getElementById("localBtn").onclick = renderSetup;
+  document.getElementById("pickerBtn").onclick = renderHome;
 }
 
 // شاشة إدخال الاسم لما يفتح أحد رابط غرفة لأول مرة

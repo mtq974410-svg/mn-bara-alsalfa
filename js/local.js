@@ -78,7 +78,7 @@ function renderSetup(spun = -1) {
   if (spun >= 0) { const b = app.querySelector(`[data-av="${spun}"]`); if (b) b.classList.add("spin-once"); }
   app.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { SFX.select(); state.cats = toggleCat(state.cats, b.dataset.cat); saveCats(state.cats); renderSetup(); });
   document.getElementById("startBtn").onclick = startRound;
-  document.getElementById("homeBack").onclick = renderHome;
+  document.getElementById("homeBack").onclick = renderGame1Home;
   const r = document.getElementById("resetBtn");
   if (r) r.onclick = () => { if (confirm("أكيد تبي تصفر النقاط؟")) { p.forEach(x => x.score = 0); savePlayers(); renderSetup(); } };
 }
