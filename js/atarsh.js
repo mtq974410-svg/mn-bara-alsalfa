@@ -67,7 +67,8 @@ function renderGame2Home() {
     </div>
     <h1 class="logo">مين الأطرش<br><span>بالزفة؟</span></h1>
     <p class="tagline">لعبة الأسئلة المزدوجة 🎺</p>
-    <button class="big" id="at-startBtn">ابدأ اللعبة 🎲</button>
+    <button class="big" id="at-startBtn">العب على جوال واحد 📱</button>
+    <button class="big" id="at-onlineBtn" data-quiet="1" style="background: linear-gradient(135deg, var(--gold), var(--orange))">العب أونلاين 🌐</button>
     <button class="big ghost" id="at-homeBtn">الرئيسية 🏠</button>
     <details class="card how">
       <summary style="cursor:pointer; font-weight:700; font-size:1.05rem; padding:4px 0">كيف تلعب؟ 📖</summary>
@@ -83,6 +84,10 @@ function renderGame2Home() {
     </details>
   `);
   document.getElementById("at-startBtn").onclick = renderAtarshSetup;
+  document.getElementById("at-onlineBtn").onclick = function () {
+    if (typeof renderAtarshOnlineHome !== "undefined") { SFX.select(); renderAtarshOnlineHome(); }
+    else { toast("جاري التحميل..."); }
+  };
   document.getElementById("at-homeBtn").onclick = function () {
     if (typeof leaveChannel !== "undefined") leaveChannel();
     renderHome();
