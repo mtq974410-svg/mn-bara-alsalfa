@@ -630,6 +630,31 @@ musicBtn.onclick = () => {
 };
 updateAudioBtns();
 
+/* ============================================================
+   اختيار برا السالفة: عشوائي موزون يقلل التكرار
+   ============================================================ */
+function pickOutsider(players, history) {
+  const n = players.length;
+  const weights = players.map((_, i) => {
+    const key = typeof players[i] === "object" ? players[i].id : i;
+    const pos = history.lastIndexOf(key);
+    if (pos === -1) return 1.0;
+    const ago = history.length - pos;
+    if (ago === 1) return 0.15;
+    if (ago === 2) return 0.4;
+    if (ago === 3) return 0.7;
+    return 1.0;
+  });
+  const total = weights.reduce((a, b) => a + b, 0);
+  let r = Math.random() * total;
+  for (let i = 0; i < n; i++) { r -= weights[i]; if (r <= 0) return i; }
+  return n - 1;
+}
+function updateOutsiderHistory(history, key, maxLen) {
+  history.push(key);
+  if (history.length > maxLen) history.shift();
+}
+
 /* ----- الوضع الليلي / العادي ----- */
 const THEME_KEY = "bara_theme";
 const themeBtn = document.getElementById("themeBtn");

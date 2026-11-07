@@ -165,7 +165,7 @@ async function createRoom() {
   On.room = {
     v: ROOM_VERSION, code, hostId: myId, phase: "lobby", categories: loadCats(),
     players: [{ id: myId, name: myName(), score: 0, look: myLook(), pk: Sec.pubEcdh }],
-    waiting: [], round: null, chat: [], seq: 1, locked: false,
+    waiting: [], round: null, chat: [], seq: 1, locked: false, outsiderHistory: [],
     gk: Sec.newGroupRaw(), ctr: {}          // gk و ctr خاصة بصاحب الغرفة وما تنرسل
   };
   sysChat(`${myName()} سوّى الغرفة 🎉`);
@@ -182,6 +182,7 @@ async function joinRoom(code) {
     saved.v = ROOM_VERSION;
     if (typeof saved.gk !== "string" || saved.gk.length !== 44) saved.gk = Sec.newGroupRaw();
     if (!saved.ctr || typeof saved.ctr !== "object") saved.ctr = {};
+    if (!Array.isArray(saved.outsiderHistory)) saved.outsiderHistory = [];
     const me = saved.players.concat(saved.waiting || []).find(x => x.id === myId);
     if (me) me.pk = Sec.pubEcdh;
     On.isHost = true; On.room = saved;
@@ -581,9 +582,12 @@ function hostStart() {
   if (r.players.length < 3) { toast("لازم 3 لاعبين على الأقل"); commit(); return; }
   const cat = pickCat(r.categories);
   const [word, emoji] = CATEGORIES[cat].words[rand(CATEGORIES[cat].words.length)];
+  const outsiderIdx = pickOutsider(r.players, r.outsiderHistory);
+  const maxHistory = Math.min(5, r.players.length - 1);
+  updateOutsiderHistory(r.outsiderHistory, r.players[outsiderIdx].id, maxHistory);
   r.round = {
     n: ((r.round && r.round.n) || 0) + 1, q: 0,
-    cat, word, emoji, outsiderId: r.players[rand(r.players.length)].id,
+    cat, word, emoji, outsiderId: r.players[outsiderIdx].id,
     ready: {}, votes: {}, pairs: [], qi: 0, caught: false, options: [], guess: null, notes: []
   };
   r.phase = "roles";
